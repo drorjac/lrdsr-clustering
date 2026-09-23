@@ -1,0 +1,34 @@
+[project]
+name = "lrdsr-clustering"
+version = "0.1.0"
+description = "Latent-regime clustering by symbolic law: the method and its analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26", "pandas>=2.0", "scipy>=1.11",
+    "scikit-learn>=1.3", "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# The stochastic search engines used only for the sensitivity check in
+# experiments/estimator/search.py. The default backend needs neither.
+engines = ["pysr>=0.18", "physo>=1.0"]
+dev = ["pytest>=7.4", "ruff>=0.4", "nbformat", "nbclient", "ipykernel"]
+
+[tool.setuptools.packages.find]
+include = ["lrdsr*", "experiments*", "analysis*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Numerical code carried over verbatim from the parent project. Style is not
+# reviewed there on purpose: a restyle would silently change committed
+# numbers, and the point of carrying it over is that it is the same code.
+# The ignore is deliberately narrow -- F (real errors) still applies.
+"experiments/*" = ["E7", "E9", "B", "C4", "RUF", "UP"]
+"lrdsr/theory/verification.py" = ["E7"]

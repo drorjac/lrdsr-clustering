@@ -1,0 +1,9 @@
+pair,rho,seed,true_slot,truth,recovered
+linear,1.0,11,0,2*x + 1,0.99192 +1.9681*x
+linear,1.0,11,1,-x + 3,2.9499 -1.0078*x
+oscillatory,1.0,11,0,sin(x) + 0.2*x,-0.002651 +1.2835*sin(x)
+oscillatory,1.0,11,1,cos(x) + 0.2*x,-0.0373 +1.0544*cos(x) +0.19789*x
+polynomial,1.0,11,0,x^2 + x,0.011615 +0.98773*(x)^2 +0.98128*x
+polynomial,1.0,11,1,x^2 - x,0.036005 -1.0049*x +0.95119*(x)^2
+saturation,1.0,11,0,0.4*x^1.1,-0.046922 +0.45902*x
+saturation,1.0,11,1,0.4*x^1.1 + 1.5*(1 - exp(-x)),-0.10183 +2.0659*log1p(abs(x))
