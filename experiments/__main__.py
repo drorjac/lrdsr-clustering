@@ -6,6 +6,14 @@
                                       #   the loop for
     python -m experiments functions   # what declared knowledge is worth, and
                                       #   three classification shapes
+    python -m experiments problems    # a zoo of twelve problems, each hard for
+                                      #   its own reason
+    python -m experiments losses      # which loss, when: the efficiency theory
+                                      #   (V8) and a learned loss
+    python -m experiments online      # clustering in real time, and the delay
+                                      #   theory of sequential detection (V9)
+    python -m experiments realdata    # two real datasets: bike sharing and
+                                      #   highway traffic, day by day
     python -m experiments all
 
 Each block writes CSVs to ``results/<block>/``. The figures and every number
@@ -27,6 +35,19 @@ SECTIONS = {
     "functions": ("experiments.functions.run",
                   "what is declared knowledge worth (known/known-form/"
                   "unknown), and the three classification shapes F1/F2/F3"),
+    "problems": ("experiments.problems.run",
+                 "twelve problems, each breaking one assumption: out-of-library "
+                 "laws, gaps outside the span, K = 3 and 4, two inputs, a "
+                 "rescaled copy, matched moments"),
+    "losses": ("experiments.losses.run",
+               "which loss, when: the efficiency of a robust loss (V8), every "
+               "loss under four noise laws, and a loss learned from residuals"),
+    "online": ("experiments.online.run",
+               "clustering in real time: sequential-detection theory (V9), "
+               "streams with regime birth and drift, latency"),
+    "realdata": ("experiments.realdata.run",
+                 "two public datasets, one window per day: UCI bike sharing and "
+                 "I-94 traffic -- batch, soft, real time, and what K to use"),
 }
 
 

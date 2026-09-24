@@ -14,7 +14,15 @@ from .backends import (
     SuperpositionRegressor,
     make_symbolic_regressor,
 )
-from .losses import aggregate_window_residual, joint_cost, robust_scale
+from .losses import (
+    HUBER_DELTA,
+    LOSSES,
+    aggregate_window_residual,
+    joint_cost,
+    learn_loss,
+    noise_scale,
+    robust_scale,
+)
 from .mechanism_space import mechanism_features
 
 # Mechanism-knowledge levels a cluster slot may declare.
@@ -83,7 +91,7 @@ class GroupedDCSR:
         lambda_phys: float = 0.0,
         max_iter: int = 10,
         tol: float = 0.01,
-        robust_delta: float = 1.5,
+        robust_delta: float = HUBER_DELTA,
         backend: str = "fast",
         backend_kwargs: dict | None = None,
         random_state: int = 7,
@@ -100,6 +108,9 @@ class GroupedDCSR:
         superposition_margin: float = 0.0,
         max_composites: int | None = None,
         residual_scale: str = "global",
+        loss: str = "huber",
+        loss_params: dict | None = None,
+        scale_convention: str = "sd",
     ):
         self.n_clusters = n_clusters
         self.alpha_geom = alpha_geom
@@ -154,6 +165,38 @@ class GroupedDCSR:
         # makes the equation term blind to the SIZE of the misfit.
         # See lrdsr.core.losses.aggregate_window_residual.
         self.residual_scale = residual_scale
+        # The per-sample penalty of the equation term. "huber" (with
+        # robust_delta) is the historical score; any name in
+        # lrdsr.core.losses.LOSSES is accepted, and "learned" re-fits the loss
+        # every iteration from the residuals of the current assignment
+        # (lrdsr.core.losses.learn_loss): a Gaussian, Laplace or Student-t
+        # noise model, whichever explains them best, with its own scale. The
+        # learned loss needs a shared scale, so it implies residual_scale
+        # 'global'.
+        if loss != "learned" and loss not in LOSSES:
+            raise ValueError(f"loss must be 'learned' or one of {LOSSES}")
+        if loss == "learned" and residual_scale != "global":
+            raise ValueError("loss='learned' needs residual_scale='global'")
+        self.loss = loss
+        self.loss_params = dict(loss_params or {})
+        # What a residual is divided by before the loss. "sd" (the default
+        # since 2026-09-24) is the normal-consistent MAD, so robust_delta and
+        # every other loss constant is in units of the noise sd. "mad" is the
+        # raw MAD (0.6745 sd), the former default, under which delta = 1.5 was
+        # really ~1 sd and the Huber score lost ~10% efficiency -- kept only to
+        # reproduce numbers made before the fix.
+        if scale_convention not in ("sd", "mad"):
+            raise ValueError("scale_convention must be 'sd' or 'mad'")
+        self.scale_convention = scale_convention
+        self._active_loss = ("huber" if loss == "learned" else loss,
+                             dict(self.loss_params))
+
+    def _window_cost(self, y, pred, scale) -> float:
+        """One window's equation cost under the loss currently in force."""
+        name, params = self._active_loss
+        return aggregate_window_residual(y, pred, robust_delta=self.robust_delta,
+                                         scale=scale, loss=name, loss_params=params,
+                                         scale_convention=self.scale_convention)
 
     def _make_model_for_cluster(self, k: int, feature_names=None):
         spec = self.mechanism_specs[k] if self.mechanism_specs else {"mode": "unknown"}
@@ -211,8 +254,7 @@ class GroupedDCSR:
     def _cluster_score(self, model, X_seq, y_seq, windows, scale=None) -> float:
         """Mean per-window aggregated residual of ``model`` on ``windows``."""
         return float(np.mean([
-            aggregate_window_residual(y_seq[w], model.predict(X_seq[w]),
-                                      robust_delta=self.robust_delta, scale=scale)
+            self._window_cost(y_seq[w], model.predict(X_seq[w]), scale)
             for w in windows
         ]))
 
@@ -226,10 +268,21 @@ class GroupedDCSR:
         """
         if self.residual_scale != "global":
             return None
-        residuals = [np.asarray(y_seq[w], dtype=float).ravel()
-                     - np.asarray(models[labels[w]].predict(X_seq[w])).ravel()
-                     for w in range(X_seq.shape[0])]
-        return robust_scale(np.concatenate(residuals))
+        residuals = np.concatenate([
+            np.asarray(y_seq[w], dtype=float).ravel()
+            - np.asarray(models[labels[w]].predict(X_seq[w])).ravel()
+            for w in range(X_seq.shape[0])])
+        if self.loss == "learned":
+            # Learn the noise model, and with it the loss, from the residuals
+            # of the current assignment. Its scale replaces the MAD: it is the
+            # scale that loss is defined against.
+            learned = learn_loss(residuals)
+            self._active_loss = (learned.loss, dict(learned.params))
+            self.learned_loss_ = learned
+            return learned.scale
+        if self.scale_convention == "mad":
+            return robust_scale(residuals)
+        return noise_scale(residuals)
 
     def _fit_models(self, X_seq, y_seq, labels, feature_names=None, scale=None):
         models = []
@@ -331,10 +384,8 @@ class GroupedDCSR:
                     y_seq[train].reshape(-1),
                 )
                 for w in fold:
-                    equation[w, k] = aggregate_window_residual(
-                        y_seq[w], model.predict(X_seq[w]),
-                        robust_delta=self.robust_delta, scale=scale,
-                    )
+                    equation[w, k] = self._window_cost(
+                        y_seq[w], model.predict(X_seq[w]), scale)
         return equation
 
     def _repair_initial_labels(self, Zs, labels):
@@ -565,10 +616,8 @@ class GroupedDCSR:
             equation = np.zeros((W, self.n_clusters), dtype=float)
             for w in range(W):
                 for k, model in enumerate(models):
-                    pred = model.predict(X_seq[w])
-                    equation[w, k] = aggregate_window_residual(
-                        y_seq[w], pred, robust_delta=self.robust_delta, scale=scale
-                    )
+                    equation[w, k] = self._window_cost(
+                        y_seq[w], model.predict(X_seq[w]), scale)
 
             if self.score_mode == "cross_fit":
                 equation = self._crossfit_equation_scores(
@@ -603,7 +652,10 @@ class GroupedDCSR:
                 "changed_fraction": changed,
                 "mean_assignment_cost": float(np.mean(np.min(total, axis=1))),
                 "min_cluster_size": int(np.min(np.bincount(new_labels, minlength=self.n_clusters))),
+                "loss": self._active_loss[0],
             }
+            if self.loss == "learned" and "nu" in self._active_loss[1]:
+                row["loss_nu"] = float(self._active_loss[1]["nu"])
             if true_labels_for_eval is not None:
                 from .evaluation import clustering_metrics
                 row.update(clustering_metrics(true_labels_for_eval, new_labels))

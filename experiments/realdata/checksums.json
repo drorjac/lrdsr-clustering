@@ -1,0 +1,12 @@
+{
+  "bike": {
+    "url": "https://archive.ics.uci.edu/static/public/275/bike+sharing+dataset.zip",
+    "sha256": "b70182d0d0508e9abbb79306ce5c0cec34869000f8220175ac83d11dbe845401",
+    "bytes": 279992
+  },
+  "traffic": {
+    "url": "https://archive.ics.uci.edu/static/public/492/metro+interstate+traffic+volume.zip",
+    "sha256": "b99aeabcbd6cc86f642da3a79d90883425798f58abd3b3302da2fa19dda73768",
+    "bytes": 405547
+  }
+}

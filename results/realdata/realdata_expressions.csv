@@ -1,0 +1,9 @@
+dataset,method,regime,expression,n_days,share_working
+bike,lrdsr_alpha0,off,2.5254 -1.3556*sin(x) -2.1526*cos(x) -0.36593*sin(2*x) -2.9022*log1p(abs(x)) +0.019837*(x)^3,233,0.04291845493562232
+bike,lrdsr_alpha0,working,-1.035 +1.3048*log1p(abs(x)) -0.49835*cos(x) -0.97062*sin(2*x) -1.0108*sin(x) -0.01068*(x)^3,490,0.9877551020408163
+bike,soft_fourier,working,-0.9837*sin(1x) -1.104*cos(1x) -0.9424*sin(2x) -0.4885*cos(2x) -0.2354*sin(3x) +0.4549*cos(3x) +0.169*sin(4x) +0.2567*cos(4x),498,0.9879518072289156
+bike,soft_fourier,off,-1.161*sin(1x) -0.9069*cos(1x) -0.2593*sin(2x) +0.5206*cos(2x) +0.2895*sin(3x) +0.2409*cos(3x) +0.1765*sin(4x) -0.05389*cos(4x),225,0.008888888888888889
+traffic,lrdsr_alpha0,off,0.70451 -2.2653*log1p(abs(x)) -1.1027*cos(x) +0.71361*x -0.31182*sin(2*x) -0.49855*sin(x),375,0.010666666666666666
+traffic,lrdsr_alpha0,working,-1.8041 -0.12715*cos(x) +0.67823*log1p(abs(x)) -0.32225*sin(2*x) -0.021664*(x)^3 +0.72534*x,839,0.9761620977353993
+traffic,soft_fourier,off,-0.7276*sin(1x) -0.7468*cos(1x) -0.3598*sin(2x) +0.09833*cos(2x) -0.0466*sin(3x) +0.1414*cos(3x) +0.01567*sin(4x) +0.05481*cos(4x),377,0.010610079575596816
+traffic,soft_fourier,working,-0.3266*sin(1x) -1.078*cos(1x) -0.4224*sin(2x) -0.4925*cos(2x) -0.3848*sin(3x) +0.107*cos(3x) -0.1171*sin(4x) +0.136*cos(4x),837,0.978494623655914

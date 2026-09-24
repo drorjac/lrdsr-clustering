@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import matplotlib as mpl
 
-mpl.use("Agg")
+if __name__ == "__main__":
+    # Headless when run as the figure build; left alone when imported, so a
+    # notebook that imports these figures keeps its inline backend.
+    mpl.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -733,9 +736,32 @@ ALL = {
 }
 
 
-def main() -> int:
+#: The figure modules of the blocks added after this file: problems, losses,
+#: online and realdata. Each exposes ``FIGURES = {name: fn}``; they import
+#: ``style``/``C`` from here, so they are collected lazily in :func:`all_figures`
+#: rather than imported at the top.
+BLOCK_FIGURES = ("analysis.figs_problems", "analysis.figs_losses",
+                 "analysis.figs_online", "analysis.figs_realdata")
+
+
+def all_figures() -> dict:
+    """Every figure in the project: the ones above, then each block's."""
+    import importlib
+
+    out = dict(ALL)
+    for mod in BLOCK_FIGURES:
+        out.update(importlib.import_module(mod).FIGURES)
+    return out
+
+
+def main(argv=None) -> int:
+    """``python -m analysis.plots [name-prefix ...]``: write figures to figures/."""
+    import sys
+    only = (sys.argv[1:] if argv is None else argv) or None
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, fn in ALL.items():
+    for name, fn in all_figures().items():
+        if only and not any(name.startswith(o) for o in only):
+            continue
         fig = fn()
         fig.savefig(OUT / f"{name}.png")
         plt.close(fig)

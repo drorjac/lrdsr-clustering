@@ -78,8 +78,13 @@ def numbers() -> dict:
         100 * (cx.bic_excess / cx.floor_rmse).max())
     beta = _csv("estimator", "search_beta.csv")
     g = beta.groupby("beta_complexity").matched_error.mean()
-    inert = g[g.index <= 1.0]
-    n["beta_inert_lo"], n["beta_inert_hi"] = float(inert.min()), float(inert.max())
+    flat = g[g <= g.min() + 1e-12]
+    n["beta_inert_lo"] = float(g.min())
+    n["beta_plateau_max"] = float(flat.index.max())
+    bite = g[g.index > flat.index.max()]
+    n["beta_bite"] = float(bite.index.min())
+    n["beta_err_bite"] = float(bite.iloc[0])
+    n["beta_default"] = 0.002
     n["beta_max"] = float(g.index.max())
     n["beta_err_at_max"] = float(g.iloc[-1])
 
@@ -94,6 +99,170 @@ def numbers() -> dict:
             n["ladder_n_max"] = int(k.window_len.max())
     except SystemExit:
         pass
+
+    n.update(problems_numbers())
+    n.update(losses_numbers())
+    n.update(online_numbers())
+    n.update(realdata_numbers())
+    return n
+
+
+def realdata_numbers() -> dict:
+    """Bike sharing and I-94 traffic: one window per day, calendar as reference."""
+    n: dict = {}
+    s = _csv("realdata", "realdata_summary.csv").set_index(["dataset", "method"])
+    for ds in ("bike", "traffic"):
+        for m, key in (("lrdsr_alpha0", "lrdsr"), ("soft_student_t", "soft_t"),
+                       ("soft_fourier", "soft_fourier"), ("mech_kmeans", "mech"),
+                       ("raw_profile_kmeans", "profile")):
+            n[f"rd_{ds}_{key}_ari"] = float(s.loc[(ds, m), "ARI_mean"])
+            n[f"rd_{ds}_{key}_err"] = float(s.loc[(ds, m), "error_mean"])
+        geo = s.loc[ds]
+        geo = geo[geo.family == "geometry"]
+        n[f"rd_{ds}_geom_ari"] = float(geo.ARI_mean.max())
+    cov = _csv("realdata", "realdata_coverage.csv")
+    for ds in ("bike", "traffic"):
+        row = cov[cov.dataset == ds].iloc[0]
+        for c in cov.columns:
+            if c != "dataset" and np.issubdtype(type(row[c]), np.number):
+                n[f"rd_{ds}_cov_{c}"] = float(row[c])
+    r = _csv("realdata", "realdata_rho.csv").set_index(["dataset", "basis"])
+    for ds in ("bike", "traffic"):
+        n[f"rd_{ds}_rho_lib"] = float(r.loc[(ds, "library"), "rho_trace"])
+        n[f"rd_{ds}_rho_fourier"] = float(r.loc[(ds, "fourier"), "rho_trace"])
+    d = _csv("realdata", "realdata_disagreements.csv")
+    for ds in ("bike", "traffic"):
+        g = d[d.dataset == ds]
+        n[f"rd_{ds}_disagree"] = len(g)
+        n[f"rd_{ds}_holiday_working"] = int(((g.day_type == "holiday")
+                                             & (g.behaves_like == "working")).sum())
+        n[f"rd_{ds}_working_off"] = int(((g.day_type == "working")
+                                         & (g.behaves_like == "off")).sum())
+    k = _csv("realdata", "realdata_k_selection.csv")
+    n["rd_bic_k"] = int(k[k.chosen].K.max())
+    n["rd_bic_kmax"] = int(k.K.max())
+    o = _csv("realdata", "realdata_online_summary.csv").set_index(["dataset", "novelty_alpha"])
+    for ds in ("bike", "traffic"):
+        for a, key in ((1e-3, "a3"), (1e-6, "a6")):
+            n[f"rd_{ds}_online_acc_{key}"] = float(o.loc[(ds, a), "online_accuracy"])
+            n[f"rd_{ds}_online_births_{key}"] = int(o.loc[(ds, a), "births"])
+            n[f"rd_{ds}_online_err_{key}"] = 1.0 - n[f"rd_{ds}_online_acc_{key}"]
+    n["rd_warmup_days"] = int(o.warmup_days.iloc[0])
+    ll = _csv("realdata", "realdata_learned_loss.csv")
+    ll = ll[ll.loss == "learned"].set_index("dataset")
+    n["rd_bike_nu"] = float(ll.loc["bike", "nu"])
+    n["rd_traffic_nu"] = float(ll.loc["traffic", "nu"])
+    return n
+
+
+def losses_numbers() -> dict:
+    """V8 (the efficiency formula) and every loss under four noise laws."""
+    n: dict = {}
+    eff = _csv("losses", "v8_efficiency.csv")
+    v = _csv("losses", "v8_verdict.csv")
+    smooth = v[v.loss.isin(["huber", "cauchy", "tukey", "student_t"])]
+    small = smooth[smooth.gap_bin.isin(["(0.0, 0.1]", "(0.1, 0.25]"])]
+    n["v8_small_within"] = int(small.within.sum())
+    n["v8_small_cells"] = int(small.cells.sum())
+    mid = smooth[smooth.gap_bin == "(0.25, 0.5]"]
+    n["v8_mid_within"], n["v8_mid_cells"] = int(mid.within.sum()), int(mid.cells.sum())
+    big = smooth[smooth.gap_bin == "(0.5, inf]"]
+    n["v8_big_share"] = float(big.within.sum() / big.cells.sum())
+    e = eff.drop_duplicates(["loss", "noise"]).set_index(["noise", "loss"])["eta"]
+    for noise in ("gaussian", "student_t3", "contaminated_10"):
+        for loss in ("squared", "huber", "cauchy", "lrt"):
+            if (noise, loss) in e.index:
+                n[f"eta_{noise}_{loss}"] = float(e.loc[(noise, loss)])
+    s = _csv("losses", "loss_estimator_summary.csv").set_index(["noise", "arm"])
+    for noise in ("gaussian", "laplace", "student_t3", "contaminated_10"):
+        for arm in ("oracle_lrt", "oracle_squared", "hard_learned", "hard_squared",
+                    "hard_huber", "soft_gaussian", "soft_student_t"):
+            if (noise, arm) in s.index:
+                n[f"le_{noise}_{arm}"] = float(s.loc[(noise, arm), "mean_error"])
+    hd = _csv("losses", "loss_huber_delta_summary.csv")
+    hd = hd.set_index(["noise", "delta"]).matched_error
+    for noise in ("gaussian", "laplace", "student_t3"):
+        n[f"hd_{noise}_old"] = float(hd.loc[(noise, 1.0)])     # ~ the former default
+        n[f"hd_{noise}_new"] = float(hd.loc[(noise, 1.345)])
+    n["hd_gaussian_squared"] = float(hd.loc[("gaussian", 100.0)])
+    learned = s.xs("hard_learned", level="arm")
+    n["le_learned_worst_excess"] = float(learned.excess_over_lrt.max())
+    tr = _csv("losses", "loss_learning_trace.csv")
+    last = tr.sort_values("iteration").groupby(["noise", "seed", "method", "regime"]).tail(1)
+    t3 = last[(last.noise == "student_t3") & last.nu.notna()]
+    n["nu_t3_hard"] = float(t3[t3.method == "hard_learned"].nu.median())
+    n["nu_t3_soft"] = float(t3[t3.method == "soft_student_t"].nu.median())
+    return n
+
+
+def online_numbers() -> dict:
+    """V9 (sequential detection) and the real-time streams."""
+    n: dict = {}
+    v = _csv("online", "v9_verdict.csv").iloc[0]
+    n["v9_cells"] = int(v.delay_cells)
+    n["v9_delay_first_med"] = float(100 * v.delay_median_abs_rel_err_first_order)
+    n["v9_delay_tilted_med"] = float(100 * v.delay_median_abs_rel_err_tilted)
+    n["v9_delay_tilted_max"] = float(100 * v.delay_max_abs_rel_err_tilted)
+    n["v9_arl_bound_ok"] = int(v.arl_cells_above_lorden_bound)
+    n["v9_arl_cells"] = int(v.arl_cells)
+    n["v9_arl_tilted_med"] = float(100 * v.arl_median_abs_rel_err_tilted)
+    st = _csv("online", "stream_stationary_summary.csv").set_index(["rho", "method"])
+    for rho in (0.1, 0.25, 1.0):
+        for m in ("oracle", "batch_soft", "batch_lrdsr", "online_history160", "online",
+                  "online_frozen"):
+            n[f"st_{m}_r{round(100 * rho):03d}"] = float(st.loc[(rho, m), "mean_error"])
+    b = _csv("online", "stream_birth_summary.csv")
+    n["birth_false"] = float(b[b.stream == "control"].mean_false_births.max())
+    n["birth_control_runs"] = len(b[b.stream == "control"])
+    good = b[(b.stream == "newcomer") & (b.predicted_power >= 0.48)]
+    n["birth_good_frac"] = float(good.frac_born.min())
+    n["birth_delay_lo"] = float(good.mean_birth_delay_newcomer_windows.min())
+    n["birth_delay_hi"] = float(good.mean_birth_delay_newcomer_windows.max())
+    n["birth_err_after_hi"] = float(good.mean_error_after_birth.max())
+    d = _csv("online", "stream_drift_summary.csv").set_index("arm")
+    for arm, key in (("frozen", "frozen"), ("lambda=1", "l100"), ("lambda=0.98", "l098"),
+                     ("lambda=0.95", "l095")):
+        n[f"drift_{key}"] = float(d.loc[arm, "error"])
+    lat = _csv("online", "stream_latency.csv")
+    w = lat[lat.estimator == "OnlineLRDSR.partial_fit"]
+    n["lat_lo_us"], n["lat_hi_us"] = float(w.median_us.min()), float(w.median_us.max())
+    n["lat_rate_lo"] = float(w.windows_per_s.min())
+    c = _csv("online", "stream_cusum_summary.csv").set_index(["rho", "laws", "h"])
+    n["cusum_acc_learned"] = float(c.loc[(1.0, "learned_laws", 5.0), "accuracy"])
+    n["cusum_acc_true"] = float(c.loc[(1.0, "true_laws", 5.0), "accuracy"])
+    n["cusum_delay_learned"] = float(c.loc[(1.0, "learned_laws", 5.0), "mean_delay"])
+    n["cusum_delay_pred"] = float(c.loc[(1.0, "learned_laws", 5.0),
+                                        "predicted_delay_first_order"])
+    return n
+
+
+def problems_numbers() -> dict:
+    """The problem zoo: gap to the oracle per method, and where it fails."""
+    n: dict = {}
+    s = _csv("problems", "problems_summary.csv")
+    cat = _csv("problems", "problems_catalog.csv")
+    n["zoo_problems"] = int(s.problem.nunique())
+    n["zoo_cells"] = len(s)
+    for m in ("lrdsr", "soft_em", "mechanism_kmeans", "profile_kmeans", "geometry"):
+        n[f"zoo_gap_{m}"] = float(s[f"{m}_gap"].mean())
+    n["zoo_within_lrdsr"] = int((s.lrdsr_gap <= 0.02).sum())
+    n["zoo_within_soft"] = int((s.soft_em_gap <= 0.02).sum())
+    # the failure: the problem whose gap the library misses the most
+    worst = cat.sort_values("gap_outside_library").iloc[-1]
+    n["zoo_worst"] = str(worst.problem)
+    n["zoo_worst_outside_pct"] = float(100 * worst.gap_outside_library)
+    w = s[s.problem == worst.problem].groupby("problem").mean(numeric_only=True).iloc[0]
+    n["zoo_worst_gap_lrdsr"] = float(w.lrdsr_gap)
+    n["zoo_worst_gap_soft"] = float(w.soft_em_gap)
+    n["zoo_worst_gap_mech"] = float(w.mechanism_kmeans_gap)
+    rest = s[s.problem != worst.problem]
+    n["zoo_rest_gap_lrdsr"] = float(rest.lrdsr_gap.mean())
+    n["zoo_rest_gap_soft"] = float(rest.soft_em_gap.mean())
+    # out-of-library laws whose GAP the library still spans
+    outlib = cat[(~cat.in_library) & (cat.gap_outside_library < 0.01)]
+    n["zoo_outlib_n"] = len(outlib)
+    n["zoo_outlib_gap_lrdsr"] = float(
+        s[s.problem.isin(outlib.problem)].lrdsr_gap.mean())
     return n
 
 

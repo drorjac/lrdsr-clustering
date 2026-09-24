@@ -11,10 +11,11 @@ reassignment of every window.
     assignment cost), ``baselines.py`` (geometric baselines), ``evaluation.py``.
 ``lrdsr.theory``
     The detection theory: exact window-assignment error, the kappa
-    correction, the K-ary sandwich, and ``rho(L)`` for the wet antenna.
-``lrdsr.cml``
-    The application to commercial microwave links: ITU-R P.838-3 constants and
-    the two-slot path / path-plus-antenna fit.
+    correction, the K-ary sandwich, the efficiency of a robust loss, and the
+    delay of sequential (real-time) detection.
+``lrdsr.viz``
+    Plotting for any fit: windows, laws, mechanism space, costs, learning
+    curves, streams, and a live animation of online clustering.
 
 The experiments that produce the paper live outside the package, in
 ``experiments/``.
@@ -22,13 +23,18 @@ The experiments that produce the paper live outside the package, in
 
 from .core.backends import FastSymbolicRegressor, make_symbolic_regressor
 from .core.model import DCSRResult, GroupedDCSR, RowDCSR
+from .core.online import CusumSegmenter, OnlineLRDSR
+from .core.soft import SoftLRDSR
 
 __version__ = "1.0.0"
 
 __all__ = [
+    "CusumSegmenter",
     "DCSRResult",
     "FastSymbolicRegressor",
     "GroupedDCSR",
+    "OnlineLRDSR",
     "RowDCSR",
+    "SoftLRDSR",
     "make_symbolic_regressor",
 ]

@@ -32,3 +32,6 @@ ignore = ["E501"]
 # The ignore is deliberately narrow -- F (real errors) still applies.
 "experiments/*" = ["E7", "E9", "B", "C4", "RUF", "UP"]
 "lrdsr/theory/verification.py" = ["E7"]
+# Generated notebooks read top to bottom: imports sit where they are first
+# used, and short cells chain statements. Style only -- F and the rest apply.
+"notebooks/*.ipynb" = ["E401", "E402", "E702", "I001", "B007", "B905"]

@@ -18,5 +18,5 @@ scale,regime,most_confused_with,recovered_fraction,confusion_fraction
 0.6,scaled,base,0.0,1.0
 0.8,base,,1.0,0.0
 0.8,lagged,,1.0,0.0
-0.8,other,scaled,0.7033333333333333,0.2966666666666667
+0.8,other,scaled,0.7000000000000001,0.3
 0.8,scaled,base,0.0,1.0
