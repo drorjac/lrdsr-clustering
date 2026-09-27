@@ -18,6 +18,8 @@
 ``clustering``      the unsupervised problem on the same data (train+test,
                     ``K`` the number of classes): mechanism K-means and soft
                     EM in a cosine basis against K-means on the raw profile
+``fixes``           two repairs, the warp and the discriminative head
+                    (``fixes.py``), and V10 at a random design, exactly
 ==================  =======================================================
 
 Protocol. Hyperparameters of every method are chosen by stratified CV on
@@ -273,8 +275,8 @@ def run(args=None) -> None:
         print("\n--- V10: the learning curve ---", flush=True)
         run_v10()
 
-    stages = set(args or ()) & {"benchmark", "fewshot", "irregular", "clustering"}
-    stages = stages or {"benchmark", "fewshot", "irregular", "clustering"}
+    stages = set(args or ()) & {"benchmark", "fewshot", "irregular", "clustering", "fixes"}
+    stages = stages or {"benchmark", "fewshot", "irregular", "clustering", "fixes"}
 
     if "benchmark" in stages:
         print("\n--- benchmark ---", flush=True)
@@ -308,6 +310,13 @@ def run(args=None) -> None:
         cl.to_csv(RESULTS / "ucr_clustering.csv", index=False)
         print(cl.groupby(["group", "keep", "method"]).ARI.mean().unstack().round(3)
               .to_string())
+    if "fixes" in stages:
+        print("\n--- two repairs: the warp and the stack ---", flush=True)
+        from experiments.classify import fixes
+        fixes.run()
+        from lrdsr.theory.classification import run_v10_design
+        print("\n--- V10 at a random design, exactly ---", flush=True)
+        run_v10_design()
     print(f"\n[classify] {(time.time() - t0) / 60:.1f} min; CSVs -> {RESULTS}")
 
 

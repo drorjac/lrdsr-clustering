@@ -30,6 +30,9 @@ def run(args=None) -> None:
     print(f"  [V9] {time.time() - t0:.0f} s", flush=True)
     print("\n=== streams ===", flush=True)
     streams.run()
+    print("\n=== ragged windows and a kernel basis ===", flush=True)
+    from experiments.online import ragged
+    ragged.run()
     print(f"\n[online] CSVs -> {streams.RESULTS}  ({(time.time() - t0) / 60:.1f} min)")
 
 

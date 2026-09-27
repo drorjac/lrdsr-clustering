@@ -11,8 +11,9 @@ that, and the analysis of when it works.
 Almost every law here was written down by us, so almost every answer can be
 checked against the truth rather than argued. The exceptions are the
 real-data blocks: two public hourly series, whose reference labels are a
-calendar proxy and are said to be one, and 24 datasets of the UCR
-time-series archive, whose labels are the archive's own.
+calendar proxy and are said to be one; 24 datasets of the UCR time-series
+archive, whose labels are the archive's own; and a wind farm's SCADA,
+scored against physical proxies because it has no operator labels.
 
 ```bash
 pip install -e ".[dev]"
@@ -34,6 +35,7 @@ pytest -q
 | `realdata` | what does it find in real measurements, including days with gaps? | [real data](#real-data) |
 | `kernel` | does a kernel basis repair a gap outside the library? | [kernels](#a-kernel-basis-instead-of-a-library) |
 | `classify` | a class is a set of laws: theory (V10) and 24 real datasets | [classification](#classification-a-class-is-a-set-of-laws) |
+| `wind` | power curves where every window has its own design (Kelmarsh SCADA) | [wind](#wind-power-curves-every-window-its-own-design) |
 
 ## The three claims, in order
 
@@ -380,6 +382,68 @@ calendar as training labels instead of clusters (a classifier, not a
 clustering), the totals are 0.976 for the law and 0.974 for hour-mean
 imputation.
 
+### Predicting a partial day's error before scoring it (V11)
+
+V1 prices a window by its realised design, but it assumes independent noise
+and the likelihood-ratio rule. A real day breaks both: its hours are
+correlated, and the classifier used is least squares with the day's level
+profiled out. `lrdsr/theory/partial.py` prices *that* classifier exactly for
+any set of observed hours `H`:
+
+```
+err(H) = Q( (|g~_H|^2 / 2 +/- s^2 log(pi_1/pi_0)) / sqrt(g~_H^T Sigma_H g~_H) )
+```
+
+with `g~_H` the level-profiled gap between the two day-laws at the observed
+hours and `Sigma` the residual covariance of complete training days -- the
+only estimated input, and it carries the correlation of neighbouring hours.
+Under correlated Gaussian noise it matches the actual classifier within the
+Monte-Carlo band (`tests/test_partial.py`).
+
+On real days (`experiments/realdata/partial.py`; laws and `Sigma` from one half
+of the complete days, every day of the other half re-scored under masks):
+
+- **Which hours are missing matters, and V11 knows which.** A 6- or 12-hour
+  block removed at each of the 24 start hours: the predicted error ranks the
+  start hours like the observed one, Spearman 0.86 to 0.95 over both
+  datasets and block lengths, and names the worst start hour in 3 of 4
+  cases. Losing the night and early morning costs I-94 up to
+  20%; losing the middle of the day costs nothing.
+- **A day is decided by 5 am.** Read hour by hour from midnight, the share of
+  I-94 days decided correctly at 99% confidence is predicted at
+  0.990 after five hours and observed at 0.989; bike days by six hours,
+  0.966 against 0.948. At the knee of the curve it is optimistic (four
+  hours on I-94: 0.47 predicted, 0.28 observed).
+- **The ranking is right; the level is within a factor of a few.** Binned
+  by predicted error, it is conservative in the middle (traffic blocks
+  predicted at 0.057, observed 0.018) and optimistic in the far tail
+  (0.0003 against 0.0010), where a few days that are not Gaussian about
+  their law set the rate.
+
+### Streaming days with gaps, and a law the library cannot write
+
+`OnlineLRDSR` now takes a per-window nuisance (the level, profiled out before
+a window is scored or absorbed), windows of any length, and a kernel basis
+fitted on its warm start (`experiments/online/ragged.py`).
+
+**Every I-94 day, in calendar order.** The first real-time pass had to drop
+the days with sensor gaps. Streamed with them -- 1727 days, 573 of them
+partial -- the partial days are sorted as well as the complete ones:
+96.3% against 96.3%, and the complete-days-only stream with the same
+settings reaches 96.0%. (This stream uses a Fourier basis and the level
+nuisance; the 97.2% above used the library on centred days, so the two
+are not compared.)
+
+**A newcomer only a kernel can see.** A stream of `high_frequency` windows:
+warm start on `sin 4x` alone, `sin 4.6x` appears at window 40. With a Nystrom
+basis the newcomer is born in 3/3 streams at `rho` = 1 and 3/3 at 2,
+11.5 windows after it first appears, and every later window is sorted
+correctly (0.000 error). With the term library it is born in 0/3 at `rho` = 1
+and 1/3 at 2, although a known-law test would flag 75% of newcomer
+windows at `rho` = 1. The library's law for `sin 4x` is a poor surrogate, its
+misfit inflates the noise the novelty test measures, and the newcomer hides
+in it. No false birth on the control streams (0 in total).
+
 ## A kernel basis instead of a library
 
 The problem zoo's one real failure was a gap outside the library: `sin 4x`
@@ -394,14 +458,24 @@ windows.
 
 The rank is the one knob, and it trades bias (gap outside the span) against
 variance (every basis direction is a noise direction in mechanism space).
-The rank is chosen **without labels**. Three rules were compared on the
-tuning seeds -- per-window leave-one-out (minimum and one-standard-error)
-and the spectral SNR of mechanism space (excess spread over the noise per
-root dimension) -- and `snr` was kept (mean error 0.076 against
-0.095 for leave-one-out; the rank chosen against the truth, an optimistic
-bound, 0.064). Leave-one-out asks how rich *one* window's law is, and a
-noisy window cannot justify resolving `sin 4x` (on `high_frequency` at
-`rho` = 0.25 it errs at 0.427 against 0.042 for the SNR rule).
+The rank is chosen **without labels**. Five rules were compared on the
+tuning seeds -- per-window leave-one-out (minimum, one standard error) and
+the spectral SNR of mechanism space, the excess spread over the noise per
+root dimension (its maximum, the smallest rank within one bootstrap standard
+error of it, the maximum of the curve smoothed over neighbouring ranks) --
+and `snr_1se` was kept, at mean error 0.0716 against 0.0762 for the plain
+SNR maximum, 0.0754 smoothed and 0.0946 for leave-one-out (the rank chosen
+against the truth, an optimistic bound, 0.0636). Leave-one-out asks how
+rich *one* window's law is, and a noisy window cannot justify resolving
+`sin 4x` (on `high_frequency` at `rho` = 0.25 it errs at 0.427).
+
+**The rule the tuning seeds chose does not hold up on the reporting seeds.**
+There `snr_1se` errs at 0.0722, against 0.0701 for the plain SNR maximum and
+0.0689 smoothed: the three SNR variants are within seed-to-seed noise
+of each other, and the tuning seeds picked one by chance. Its preference for
+the smallest adequate rank gives part of the gap back on `high_frequency`.
+The numbers below are the rule the protocol chose; switching now, after
+seeing the reporting seeds, would be selecting on them.
 
 On the reporting seeds, gap to the oracle:
 
@@ -409,18 +483,19 @@ On the reporting seeds, gap to the oracle:
 |---|---|---|
 | soft EM, library | +0.096 | +0.018 |
 | mechanism K-means, library | +0.079 | +0.017 |
-| mechanism K-means, kernel | +0.038 | +0.013 |
-| **soft EM, kernel** | +0.032 | +0.011 |
+| mechanism K-means, kernel | +0.055 | +0.015 |
+| **soft EM, kernel** | +0.051 | +0.015 |
 | K-means on the raw profile | | +0.130 |
 
 The kernel basis takes the gap outside the span from 37% to
-0.01% at rank 17 and cuts the failure by about half for mechanism
-K-means and two thirds for soft EM, without costing the other problems: soft EM in the kernel basis is better than in the library on
-7 of 12 and worse by more than 0.002 on 2. What is left on
-`high_frequency` is variance, not bias: at `rho` = 0.1 even the best rank
-chosen against the truth errs at 0.153, and the SNR rule, which picks a
-different rank per seed, at 0.229. The price of the kernel is the name:
-the law is a dense RKHS function, not an expression.
+0.01% at rank 17 and cuts the failure by 30% for mechanism K-means and
+47% for soft EM, without costing the other problems: soft EM in the kernel
+basis is better than in the library on 6 of 12 and worse by more than
+0.002 on 2. What is left on `high_frequency` is variance, not bias: at
+`rho` = 0.1 even the best rank chosen against the truth errs at
+0.153, and the chosen rule, which picks a different rank per seed, at
+0.240. The price of the kernel is the name: the law is a dense RKHS
+function, not an expression.
 
 ## Classification: a class is a set of laws
 
@@ -455,7 +530,12 @@ factor), and the oracle itself sits above the ceiling by the Jensen gap of
 V1. With both, 28/30 cells with `p/(m n) <= 0.05` are in band; without
 them 18/60. They fail where `p/(m n) > 0.2` (0/9), where the
 inverse-Wishart tail takes over -- at `p` = 31 and `m` = 1 the classifier is
-at chance.
+at chance. **That tail can be computed rather than approximated**: sampling
+the estimated laws from their exact least-squares law,
+`beta^ ~ N(beta, sigma^2 (B^T B)^-1)`, over training and test designs, and
+integrating the test noise analytically, puts 60/60 random-design cells in
+band, the 9 with `p/(m n) > 0.2` included (9/9) -- so V10 is now
+closed at every design and every `p/(m n)` tested.
 
 **On 24 real datasets.** `experiments/classify` runs the classifiers on the UCR
 archive's own train/test splits: 9 **daily-cycle** datasets (pedestrian
@@ -492,6 +572,28 @@ set is full: the best law classifier wins on 1/9 daily datasets
 and 7/15 shape ones (both sides are best-of on the test set, so
 optimistic alike). A readable classifier has a price too: one *named* law per
 class from the symbolic library errs at 0.284 on the daily group.
+
+**Two repairs, and how far each goes** (`experiments/classify/fixes.py`; basis,
+`L` and nuisance held at the benchmark's choice, so the difference is the
+repair):
+
+- **Phase as a profiled nuisance.** `LawClassifier(shift_grid=...)` scores a
+  window against each law at its best shift and aligns each class's windows
+  before fitting its laws -- what profiling the level does for *how much*,
+  done for *when*. The shift range is chosen by CV from 0 to 20% of the
+  series. On the shape group the mean error falls from 0.140 to
+  0.128 (better on 4, worse on 2 of 15): GunPoint 0.087 to 0.027, below
+  the archive's DTW (0.087); TwoPatterns 0.058 to 0.008; Trace
+  0.260 to 0.120. Still behind DTW on average (0.094), and CV on a few
+  dozen series picks wrongly both ways: on CBF it declines the warp
+  (0.106), on ECG200 it takes one that hurts (0.150 to 0.190).
+- **A discriminative head on laws.** `LawStack` feeds cross-fitted law
+  evidence (class log-posteriors, best-law residuals) to a logistic
+  regression. On the daily group it closes part of the gap to the best raw
+  classifier -- 0.171 to 0.158 against 0.137 -- and beats it on
+  1 of 9 datasets (on the shape group 6 of 15; Trace reaches 0.020).
+  With a few dozen series and many classes the cross-fitting is too noisy
+  and it backfires: FaceFour 0.159 to 0.307, Lightning7 0.356 to 0.493.
 
 **Few labels: V10 on real data.** With `m` labelled series per class drawn
 from the training split (5 draws x 3 seeds each), the basis size chosen from
@@ -554,6 +656,71 @@ in classification. Soft EM in the same basis is below both; a class of a
 UCR dataset is not one Gaussian law in a cosine basis, and a likelihood
 that assumes it is pays for it.
 
+## Wind power curves: every window its own design
+
+`experiments/wind` takes the method to the data it was built for. The
+Kelmarsh wind farm (six 2050 kW turbines, 10-minute SCADA, CC-BY-4.0), cut
+into six-hour turbine blocks -- 14626 of them, 2016-04 to 2017-12: `x` the
+nacelle wind speed, `y` the power as a share of rated. Every block saw its
+own wind speeds, so **no raw profile exists**: to use a profile method the
+industry bins each block's power curve (the IEC 61400-12 method of bins,
+0.5 m/s) and interpolates the empty bins -- most of them, as a median block
+covers 7 of 24.
+
+**There are no operator labels, and that was checked first.** The archive's
+curtailment-by-cause columns are zero throughout, the power setpoint is
+empty before 2021 and afterwards a controller reference that never caps
+output, and the status log records one icing stop in two years. So the
+blocks are scored against **physical proxies** computed from covariates the
+fit never sees, and reported as proxies: colder air (block temperature
+below the median), wake from a neighbouring turbine (wind direction against
+the farm layout, within six rotor diameters), and night against day, whose
+raw effect is at most 1.7% -- a negative control. Turbulence intensity
+was planned and dropped: its column is 84% missing.
+
+**Transfer across turbines** (train on 1-3, test on 4-6 and back; balanced
+error, as the wake classes are 4:1; V1's ceiling is what the two proxy laws
+would allow if the proxy were exactly a change of law):
+
+| proxy | law classifier | mechanism features + logistic | method of bins, best | V1 ceiling |
+|---|---|---|---|---|
+| cold vs warm | **0.305** | 0.359 | 0.351 | 0.193 |
+| waked vs free | **0.353** | 0.374 | 0.406 | 0.269 |
+| night vs day (control) | 0.423 | 0.449 | 0.426 | 0.374 |
+
+The laws beat the method of bins by about five points on both physical
+proxies on turbines they never saw, and the control stays near chance for
+everyone, as V1 said it would. The achieved error sits above the ceiling: a
+proxy is not exactly one law per class.
+
+The prediction declared before the run -- **laws gain most where a block saw
+few wind-speed bins** -- holds for temperature (the law's edge over the best
+bins method is 0.062 on the narrowest-coverage third and 0.011 on the
+widest) and **fails for wake** (0.056 and 0.066).
+
+**The physics.** Below rated power, a turbine's output scales with air
+density, which at one pressure is `T_warm / T_cold`: 1.032 between the
+cold and warm blocks (7.8 and 16.8 C). The measured cold/warm power ratio
+starts at 1.20 at 4.25 m/s and falls to 1.026 at 11.75 m/s -- density near
+rated, and something much larger at low wind that season carries with
+temperature (where the turbulence column exists, high-turbulence samples make
+1.18 times the power at 5 m/s, which fits; it is not proven). One
+limitation this exposed: Nystrom centres at quantiles of a skewed design
+starve its sparse end, and the law with them is erratic above 9 m/s
+(off the binned ratio by up to 0.25); evenly spaced centres
+(`NystromBasis(spacing="uniform")`, added after this was seen and used only
+here) stay within 0.013 everywhere.
+
+**Without labels** the dominant structure is none of the proxies: mechanism
+K-means (K = 2) lines up with none of them or with the season (|ARI| at most
+0.025), and K-means on binned curves splits calm from windy blocks (ARI
+0.57), because the interpolated profile is mostly extrapolation. **In
+real time**, each turbine streamed on its own gives birth to 23 regimes in
+all; 5 of them are born within 24-26 December 2016, on 5 different turbines at
+once -- the storms of that Christmas -- 4 of them in the windiest 3% of blocks
+in the record (the fifth at the 86th percentile). The others fall in
+every season.
+
 ## Notebooks
 
 Generated from `notebooks/sources.py` and executed by `python notebooks/build.py`,
@@ -567,6 +734,8 @@ so every output in them is one the code produced.
 | `04_realtime_clustering` | a stream with a new regime, a live animation, latency, drift, CUSUM |
 | `05_real_data` | bike sharing and highway traffic, day by day, batch and real time |
 | `06_kernels_and_classification` | the kernel basis live, V10, the law classifier, irregular sampling, days with sensor gaps |
+| `07_partial_days_and_streams` | V11 live, which hours matter, early decision, streaming with gaps, the kernel birth |
+| `08_wind_power_curves` | Kelmarsh blocks, the proxies, transfer across turbines, the physics check |
 
 ## Layout
 
@@ -576,10 +745,10 @@ lrdsr/core/        the method: model.py (hard loop), soft.py (EM), online.py
                    kernel.py (RKHS and function bases), classify.py
                    (law classifier, mechanism features)
 lrdsr/theory/      verification.py (the ceiling, V1-V4, V7), losses.py (V8),
-                   sequential.py (V9), classification.py (V10)
+                   sequential.py (V9), classification.py (V10), partial.py (V11)
 lrdsr/viz.py       plots for any fit, and a live stream animation
 experiments/       one block per question: theory, estimator, functions,
-                   problems, losses, online, realdata, kernel, classify
+                   problems, losses, online, realdata, kernel, classify, wind
 results/<block>/   committed CSVs; every figure and number reads these
 analysis/          plots.py + figs_*.py (every figure), report.py (every number)
 notebooks/         sources.py -> executed .ipynb

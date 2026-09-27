@@ -107,6 +107,10 @@ def numbers() -> dict:
     n.update(gaps_numbers())
     n.update(kernel_numbers())
     n.update(classify_numbers())
+    n.update(partial_numbers())
+    n.update(stream_numbers())
+    n.update(wind_numbers())
+    n.update(repair_numbers())
     return n
 
 
@@ -312,19 +316,21 @@ def kernel_numbers() -> dict:
     n["k_hf_out_lib"] = float(100 * cat.loc["high_frequency", "gap_outside_library"])
     n["k_hf_out_16"] = float(100 * cat.loc["high_frequency", "gap_outside_nystrom_16"])
     tune = _csv("kernel", "kernel_rules_tune.csv")
-    for r in ("loo_min", "loo_1se", "snr"):
-        n[f"k_tune_{r}"] = float(tune[f"{r}_error"].mean())
-    n["k_tune_best"] = float(tune.best_rank_error.mean())
     rep = _csv("kernel", "kernel_rules.csv")
+    for r in ("loo_min", "loo_1se", "snr", "snr_1se", "snr_smooth"):
+        n[f"k_tune_{r}"] = float(tune[f"{r}_error"].mean())
+        n[f"k_rep_{r}"] = float(rep[f"{r}_error"].mean())
+    n["k_tune_best"] = float(tune.best_rank_error.mean())
     n["k_rule"] = str(rep.rule_chosen_on_tune.iloc[0])
-    n["k_rep_snr"] = float(rep.snr_error.mean())
-    n["k_rep_loo"] = float(rep.loo_min_error.mean())
+    n["k_rep_chosen"] = float(rep[f"{n['k_rule']}_error"].mean())
     n["k_rep_best"] = float(rep.best_rank_error.mean())
     h = rep[rep.problem == "high_frequency"].groupby("rho")
     n["k_hf_loo_r025"] = float(h.loo_min_error.mean()[0.25])
-    n["k_hf_snr_r025"] = float(h.snr_error.mean()[0.25])
-    n["k_hf_snr_r010"] = float(h.snr_error.mean()[0.1])
+    n["k_hf_snr_r025"] = float(h[f"{n['k_rule']}_error"].mean()[0.25])
+    n["k_hf_snr_r010"] = float(h[f"{n['k_rule']}_error"].mean()[0.1])
     n["k_hf_best_r010"] = float(h.best_rank_error.mean()[0.1])
+    n["k_hf_cut_mech"] = 100 * (1 - n["k_hf_mech_kernel"] / n["k_hf_mech_library"])
+    n["k_hf_cut_soft"] = 100 * (1 - n["k_hf_soft_em_kernel"] / n["k_hf_soft_em_library"])
     return n
 
 
@@ -414,6 +420,138 @@ def _ucr_numbers() -> dict:
                                   ("raw_kmeans", "raw")):
                     n[f"cl_{g}_{kk}_{key}"] = float(cm.loc[(g, k, meth)])
             n[f"cl_{g}_100_soft"] = float(cm.loc[(g, 1.0, "soft_em_cosine")])
+    return n
+
+
+def partial_numbers() -> dict:
+    """V11 on real days: which hours, calibration, early decision."""
+    n: dict = {}
+    rk = _csv("realdata", "realdata_partial_ranking.csv").set_index(["dataset", "block_hours"])
+    n["v11_rho_min"] = float(rk.spearman.min())
+    n["v11_rho_max"] = float(rk.spearman.max())
+    n["v11_worst_hits"] = int((rk.worst_start_predicted == rk.worst_start_observed).sum())
+    n["v11_worst_n"] = len(rk)
+    n["v11_tr12_max"] = float(rk.loc[("traffic", 12), "max_observed"])
+    pre = _csv("realdata", "realdata_partial_prefix.csv")
+    pre["hours"] = pre["mask_label"].astype(int)
+    p = pre.set_index(["dataset", "hours"])
+    for ds, h in (("traffic", 4), ("traffic", 5), ("bike", 5), ("bike", 6)):
+        n[f"v11_{ds}_{h}h_pred"] = float(p.loc[(ds, h), "pred_decided_right"])
+        n[f"v11_{ds}_{h}h_obs"] = float(p.loc[(ds, h), "decided_right"])
+    cal = _csv("realdata", "realdata_partial_calibration.csv")
+    blk = cal[(cal.dataset == "traffic") & (cal.family == "block")].set_index("bin")
+    n["v11_cal_mid_pred"] = float(blk.loc["(0.03, 0.1]", "predicted"])
+    n["v11_cal_mid_obs"] = float(blk.loc["(0.03, 0.1]", "observed"])
+    n["v11_cal_low_pred"] = float(blk.loc["(-0.001, 0.002]", "predicted"])
+    n["v11_cal_low_obs"] = float(blk.loc["(-0.001, 0.002]", "observed"])
+    return n
+
+
+def stream_numbers() -> dict:
+    """Part C: the kernel birth stream and the full I-94 stream."""
+    n: dict = {}
+    kb = _csv("online", "online_ragged_kernel_birth.csv")
+    new = kb[~kb.control]
+    g = new.groupby(["basis", "rho"]).births.apply(lambda s: int((s > 0).sum()))
+    for b in ("kernel", "library"):
+        for r in (0.5, 1.0, 2.0):
+            n[f"cb_{b}_{int(r * 10):02d}"] = int(g.loc[(b, r)])
+    n["cb_seeds"] = int(new.seed.nunique())
+    n["cb_kernel_delay"] = float(new[(new.basis == "kernel") & (new.rho >= 1)].birth_delay.mean())
+    n["cb_kernel_err"] = float(new[(new.basis == "kernel") & (new.rho >= 1)]
+                               .error_after_birth.mean())
+    n["cb_false"] = int(kb[kb.control].births.sum())
+    n["cb_power_10"] = float(new[new.rho == 1.0].predicted_power.iloc[0])
+    t = _csv("online", "online_ragged_traffic_summary.csv").set_index(["arm", "days"])
+    n["st_all_n"] = int(t.loc[("all_days", "all"), "n"])
+    n["st_all_acc"] = float(t.loc[("all_days", "all"), "accuracy"])
+    n["st_partial_n"] = int(t.loc[("all_days", "partial"), "n"])
+    n["st_partial_acc"] = float(t.loc[("all_days", "partial"), "accuracy"])
+    n["st_complete_acc"] = float(t.loc[("all_days", "complete"), "accuracy"])
+    n["st_only_acc"] = float(t.loc[("complete_only", "all"), "accuracy"])
+    return n
+
+
+def wind_numbers() -> dict:
+    """Part D: Kelmarsh power curves."""
+    n: dict = {}
+    cov = _csv("wind", "wind_coverage.csv").iloc[0]
+    n["w_blocks"] = int(cov.blocks)
+    n["w_first"] = str(cov.first_block)[:7]
+    n["w_last"] = str(cov.last_block)[:7]
+    n["w_cov_med"] = float(cov.median_bins_covered)
+    n["w_cov_tot"] = int(cov.bins_total)
+    n["w_sd_missing"] = float(cov.ws_sd_missing)
+    n["w_night_dep"] = float(cov.night_day_max_departure)
+    n["w_ti_ratio"] = float(cov.turbulence_ratio_5ms)
+    n["w_wake_ratio"] = float(cov.waked_0) / float(cov.waked_1)
+    t = _csv("wind", "wind_transfer.csv")
+    m = t.groupby(["proxy", "method"]).balanced_error.mean()
+    c = t.groupby("proxy").ceiling_v1.mean()
+    for p in ("cold", "waked", "night"):
+        for meth in ("law", "mech_logistic", "bins_logistic", "bins_1nn", "bins_centroid"):
+            n[f"w_{p}_{meth}"] = float(m.loc[(p, meth)])
+        n[f"w_{p}_bins_best"] = float(min(m.loc[(p, k)] for k in
+                                          ("bins_logistic", "bins_1nn", "bins_centroid")))
+        n[f"w_{p}_ceiling"] = float(c.loc[p])
+    ct = _csv("wind", "wind_coverage_terciles.csv")
+    cm = ct.groupby(["proxy", "coverage", "method"]).balanced_error.mean()
+    for p in ("cold", "waked"):
+        for tr in ("narrow", "wide"):
+            best = min(cm.loc[(p, tr, "bins_logistic")], cm.loc[(p, tr, "bins_1nn")])
+            n[f"w_{p}_{tr}_edge"] = float(best - cm.loc[(p, tr, "law")])
+    ph = _csv("wind", "wind_physics.csv")
+    n["w_density"] = float(ph.density_ratio.iloc[0])
+    n["w_Tc"], n["w_Tw"] = float(ph.T_cold_C.iloc[0]), float(ph.T_warm_C.iloc[0])
+    n["w_ratio_lo"] = float(ph.bins_ratio.iloc[0])
+    n["w_ratio_hi"] = float(ph.bins_ratio.iloc[-1])
+    n["w_ws_lo"], n["w_ws_hi"] = float(ph.ws.iloc[0]), float(ph.ws.iloc[-1])
+    n["w_uniform_dev"] = float((ph.law_uniform_ratio - ph.bins_ratio).abs().max())
+    n["w_quantile_dev"] = float((ph.law_ratio - ph.bins_ratio).abs().max())
+    cl = _csv("wind", "wind_clusters.csv").groupby("method").mean(numeric_only=True)
+    n["w_cl_mech_maxproxy"] = float(cl.loc["mech_kmeans", ["ARI_cold", "ARI_waked",
+                                                          "ARI_night", "ARI_winter"]].abs().max())
+    n["w_cl_bins_calm"] = float(cl.loc["bins_kmeans", "ARI_calm"])
+    on = _csv("wind", "wind_online.csv")
+    births = on[on.regime >= 0]
+    n["w_births"] = len(births)
+    n["w_births_xmas"] = int(births.born_at.str.startswith(("2016-12-24", "2016-12-25",
+                                                           "2016-12-26")).sum())
+    xmas = births[births.born_at.str.startswith(("2016-12-24", "2016-12-25", "2016-12-26"))]
+    n["w_births_xmas_turbines"] = int(xmas.turbine.nunique())
+    n["w_xmas_top3"] = int((xmas.ws_percentile >= 0.97).sum())
+    n["w_xmas_min_pct"] = float(100 * xmas.ws_percentile.min())
+    return n
+
+
+def repair_numbers() -> dict:
+    """Part B: the warp, the stack, the design-exact V10."""
+    n: dict = {}
+    f = _csv("classify", "ucr_fixes.csv")
+    b = _csv("classify", "ucr_benchmark.csv")
+    P = b.pivot_table(index=["group", "dataset"], columns="method", values="error")
+    F = f.pivot_table(index=["group", "dataset"], columns="method", values="error")
+    D = P[["law_cosine", "published_1nn_dtw"]].join(F)
+    D["best_raw"] = P[[c for c in P.columns if c.startswith("raw_")]].min(axis=1)
+    for g in ("daily", "shape"):
+        q = D.loc[g]
+        for col, key in (("law_cosine", "law"), ("law_shift", "shift"), ("law_stack", "stack"),
+                         ("best_raw", "raw"), ("published_1nn_dtw", "dtw")):
+            n[f"rp_{g}_{key}"] = float(q[col].mean())
+        n[f"rp_{g}_shift_better"] = int((q.law_shift < q.law_cosine - 1e-9).sum())
+        n[f"rp_{g}_shift_worse"] = int((q.law_shift > q.law_cosine + 1e-9).sum())
+        n[f"rp_{g}_stack_beats_raw"] = int((q.law_stack <= q.best_raw + 1e-9).sum())
+    for name in ("Trace", "GunPoint", "TwoPatterns", "CBF", "ECG200", "FaceFour", "Lightning7"):
+        r = D.xs(name, level=1).iloc[0]
+        for col, key in (("law_cosine", "law"), ("law_shift", "shift"), ("law_stack", "stack"),
+                         ("published_1nn_dtw", "dtw")):
+            n[f"rp_{name}_{key}"] = float(r[col])
+    d = _csv("classify", "v10_design_exact.csv")
+    n["v10x_in"] = int(d.in_band_design_exact.sum())
+    n["v10x_n"] = len(d)
+    big = d[d.p_over_mn > 0.2]
+    n["v10x_big_in"] = int(big.in_band_design_exact.sum())
+    n["v10x_big_n"] = len(big)
     return n
 
 

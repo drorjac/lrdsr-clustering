@@ -742,7 +742,8 @@ ALL = {
 #: rather than imported at the top.
 BLOCK_FIGURES = ("analysis.figs_problems", "analysis.figs_losses",
                  "analysis.figs_online", "analysis.figs_realdata",
-                 "analysis.figs_kernel", "analysis.figs_classify")
+                 "analysis.figs_kernel", "analysis.figs_classify",
+                 "analysis.figs_partial", "analysis.figs_wind")
 
 
 def all_figures() -> dict:

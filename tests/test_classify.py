@@ -141,3 +141,45 @@ def test_ucr_parsing_and_views():
     assert G[0, 2] == pytest.approx(3.0)       # linear interpolation of the gap
     sub = subsample([np.arange(20.0)], 0.1, seed=0)[0]
     assert np.isfinite(sub).sum() == 3         # never fewer than three samples
+
+
+def _shifted_classes(W=60, n=40, seed=10):
+    """Two pulse shapes played at random times: a law up to a shift."""
+    rng = np.random.default_rng(seed)
+    x = np.broadcast_to((np.arange(n) + 0.5) / n, (W, n))[..., None].copy()
+    z = rng.integers(0, 2, W)
+    t0 = rng.uniform(0.3, 0.7, W)[:, None]
+    u = x[..., 0] - t0
+    # the same sign and similar size: the classes differ only in the pulse's
+    # WIDTH, so a law that ignores when the pulse happens averages it away
+    y = np.where(z[:, None] == 1, np.exp(-(u / 0.04) ** 2), np.exp(-(u / 0.08) ** 2))
+    return x, y + rng.normal(0, 0.1, y.shape), z
+
+
+def test_a_shift_nuisance_repairs_classes_played_early_or_late():
+    X, y, z = _shifted_classes()
+    Xt, yt, zt = _shifted_classes(seed=11)
+    plain = LawClassifier(basis=CosineBasis(20, lo=0, hi=1), nuisance=None).fit(X, y, z)
+    warp = LawClassifier(basis=CosineBasis(20, lo=0, hi=1), nuisance=None,
+                         shift_grid=np.arange(-0.25, 0.26, 0.0125)).fit(X, y, z)
+    acc_p = np.mean(plain.predict(Xt, yt) == zt)
+    acc_w = np.mean(warp.predict(Xt, yt) == zt)
+    assert acc_w >= 0.9 and acc_w >= acc_p + 0.05
+    assert np.abs(warp.train_shift_).max() > 0         # the class laws were aligned
+
+
+def test_no_shift_grid_is_the_plain_classifier():
+    X, y, z = _two_laws(seed=12)
+    a = LawClassifier(basis=CosineBasis(5, lo=0, hi=1)).fit(X, y, z).predict_proba(X, y)
+    b = LawClassifier(basis=CosineBasis(5, lo=0, hi=1),
+                      shift_grid=[0.0]).fit(X, y, z).predict_proba(X, y)
+    np.testing.assert_allclose(a, b)
+
+
+def test_law_stack_trains_on_cross_fitted_evidence():
+    from lrdsr.core.classify import LawStack
+    X, y, z = _two_laws(W=120, sigma=0.4, seed=13)
+    Xt, yt, zt = _two_laws(W=200, sigma=0.4, seed=14)
+    st = LawStack(lambda: LawClassifier(basis=CosineBasis(5, lo=0, hi=1),
+                                        laws_per_class="all")).fit(X, y, z)
+    assert np.mean(st.predict(Xt, yt) == zt) > 0.9

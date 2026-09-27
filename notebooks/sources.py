@@ -1024,6 +1024,158 @@ pd.read_csv(RES / "realdata" / "realdata_gaps_summary.csv").pivot_table(
 ]
 
 
+# ==========================================================================
+# 07 -- partial days: V11, early decision, streams with gaps
+# ==========================================================================
+PARTIAL = [
+    ("md", r"""
+# 07 · A partial day: its error before it is scored, and the hour it is decided
+
+A day of I-94 traffic observed at hours $H$ is classified by least squares
+with its level profiled out. With the gap $\tilde g_H$ between the two
+day-laws at those hours (level removed) and the residual covariance
+$\Sigma$ of complete days, V11 gives its error exactly:
+
+$$\mathrm{err}(H) = Q\left(\frac{|\tilde g_H|^2/2 \pm s^2 \log(\pi_1/\pi_0)}
+{\sqrt{\tilde g_H^\top \Sigma_H \tilde g_H}}\right).$$
+
+The only estimated input is $\Sigma$, and it carries the correlation of
+neighbouring hours that V1's independent noise leaves out.
+"""),
+    ("code", SETUP),
+    ("code", r'''
+from experiments.realdata import partial
+from lrdsr.theory.partial import masked_error
+
+Y = partial.complete_days("traffic")
+clf, F, Sigma, lab = partial.fit_half(Y[: len(Y) // 2], seed=11)
+g = F[:, 1] - F[:, 0]
+s2 = float(clf.sigma_[0] ** 2); L = float(clf.log_prior_[1] - clf.log_prior_[0])
+print(f"{len(Y)} complete days; laws and Sigma from the first half")
+errs = {}
+for name, H in {"all 24 hours": np.arange(24), "no night (06-23)": np.arange(6, 24),
+                "no morning (12-23)": np.arange(12, 24), "no evening (00-11)": np.arange(12),
+                "six scattered hours": np.array([1, 5, 9, 13, 17, 21])}.items():
+    e = [masked_error(g[H], Sigma[k][np.ix_(H, H)], s2, L, truth=k) for k in (0, 1)]
+    errs[name] = np.mean(e)
+    print(f"{name:22s} predicted error: working-day law {e[1]:.4f}, day-off law {e[0]:.4f}")
+fig, ax = plt.subplots(figsize=(7, 2.4))
+ax.barh(list(errs), list(errs.values()), color=viz.regime_color(0))
+ax.set(xscale="log", xlabel="V11 predicted error (mean over the two laws)"); fig.tight_layout()
+'''),
+    ("md", r"""
+The same number of hours can cost nothing or a great deal. The experiment
+removes a 6- or 12-hour block at every start hour from every held-out day and
+compares the prediction with what happens:
+"""),
+    ("code", r'''
+from analysis.figs_partial import v11_which_hours, v11_early_decision, online_kernel_birth
+v11_which_hours(); v11_early_decision()
+pd.read_csv(RES / "realdata" / "realdata_partial_ranking.csv")
+'''),
+    ("md", r"""
+## Streams with gaps, and a law the library cannot write
+
+`OnlineLRDSR` takes a level nuisance, windows of any length and a kernel basis.
+Every I-94 day in calendar order, the partial ones included:
+"""),
+    ("code", r'''
+pd.read_csv(RES / "online" / "online_ragged_traffic_summary.csv")
+'''),
+    ("md", r"""
+And a newcomer the term library cannot represent (`sin 4.6x` after `sin 4x`),
+live for one stream, then over every seed:
+"""),
+    ("code", r'''
+from experiments.online.ragged import birth_cell
+for basis in ("library", "kernel"):
+    print(basis, birth_cell(1.0, 11, basis, control=False))
+online_kernel_birth();
+'''),
+]
+
+
+# ==========================================================================
+# 08 -- wind power curves
+# ==========================================================================
+WIND = [
+    ("md", r"""
+# 08 · Wind power curves: every window its own design
+
+Kelmarsh wind farm, six turbines, 10-minute SCADA (CC-BY-4.0; the first run
+downloads ~270 MB into `.cache/wind/` and checks its sha256). One window is a
+turbine over six hours: $x$ the wind speed it happened to see, $y$ the power
+as a share of rated. No two windows share a design, so there is no raw
+profile -- a profile method has to bin each window's curve first.
+
+The archive has **no operator labels** (checked: curtailment columns empty,
+setpoint never caps output), so the blocks are scored against physical
+proxies: colder air, wake from a neighbour, and night vs day as a negative
+control.
+"""),
+    ("code", SETUP),
+    ("code", r'''
+from experiments.wind.windows import build
+b = build()
+m = b.meta
+print(f"{len(b.X)} blocks; median wind-speed bins covered: {m.coverage.median():.0f} of 24")
+for p in ("cold", "waked", "night"):
+    print(f"{p:6s}", m[p].value_counts().to_dict())
+'''),
+    ("code", r'''
+fig, axes = plt.subplots(1, 3, figsize=(12, 3), sharey=True)
+rng = np.random.default_rng(0)
+for ax, (proxy, names) in zip(axes, (("cold", ("warm", "cold")), ("waked", ("free", "waked")),
+                                     ("night", ("day", "night")))):
+    for k in (0, 1):
+        idx = rng.choice(np.flatnonzero(m[proxy].to_numpy() == k), 40, replace=False)
+        for i in idx:
+            ax.plot(b.X[i][:, 0], b.y[i], ".", ms=2, color=viz.regime_color(k), alpha=0.5)
+        ax.plot([], [], "o", color=viz.regime_color(k), label=names[k])
+    ax.set(title=proxy, xlabel="wind speed (m/s)", xlim=(2, 14)); ax.legend()
+axes[0].set_ylabel("power / rated"); fig.tight_layout()
+'''),
+    ("md", r"""
+## Transfer across turbines
+
+Trained on turbines 1-3, tested on 4-6 and back; balanced error. The law
+classifier against the method of bins, and V1's ceiling for a clean
+two-law proxy:
+"""),
+    ("code", r'''
+from analysis.figs_wind import wind_transfer, wind_physics
+wind_transfer()
+t = pd.read_csv(RES / "wind" / "wind_transfer.csv")
+t.pivot_table(index="proxy", columns="method", values="balanced_error").round(3)
+'''),
+    ("code", r'''
+pd.read_csv(RES / "wind" / "wind_coverage_terciles.csv").pivot_table(
+    index=["proxy", "coverage"], columns="method", values="balanced_error").round(3)
+'''),
+    ("md", r"""
+## The physics check
+
+Below rated, power scales with air density. The cold/warm ratio of the
+recovered curves against the density ratio the temperatures imply:
+"""),
+    ("code", r'''
+wind_physics()
+pd.read_csv(RES / "wind" / "wind_physics.csv")[["ws", "bins_ratio", "law_ratio",
+                                                "law_uniform_ratio", "density_ratio"]].round(3)
+'''),
+    ("md", r"""
+## In real time
+
+Each turbine streamed on its own. The regimes born, and when:
+"""),
+    ("code", r'''
+on = pd.read_csv(RES / "wind" / "wind_online.csv")
+on[on.regime >= 0].merge(m.assign(born_at=m.block.astype(str))[
+    ["turbine", "born_at", "ws_mean", "temp"]], on=["turbine", "born_at"], how="left").round(1)
+'''),
+]
+
+
 NOTEBOOKS: dict[str, list[tuple[str, str]]] = {
     "01_quickstart": QUICKSTART,
     "02_theory_and_losses": THEORY,
@@ -1031,4 +1183,6 @@ NOTEBOOKS: dict[str, list[tuple[str, str]]] = {
     "04_realtime_clustering": REALTIME,
     "05_real_data": REALDATA,
     "06_kernels_and_classification": EXTENSIONS,
+    "07_partial_days_and_streams": PARTIAL,
+    "08_wind_power_curves": WIND,
 }

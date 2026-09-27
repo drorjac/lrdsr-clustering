@@ -191,11 +191,20 @@ class NystromBasis(_Basis):
     tol : float
         Eigenvalues of ``K_CC`` below ``tol * max`` are dropped: the kernel
         matrix at close centres is near-singular by construction.
+    spacing : ``"quantile"`` or ``"uniform"``
+        One input only: centres at evenly spaced quantiles of the pooled
+        inputs (default -- resolution where the data are), or evenly spaced
+        over their range (resolution everywhere). With a skewed design, such
+        as wind speeds, quantile centres starve the sparse end of the range
+        and the law is erratic there (measured in ``experiments/wind``).
     """
 
     def __init__(self, n_centers: int, bandwidth: float | None = None,
                  scale: float = 1.0, tol: float = 1e-8, seed: int = 0,
-                 columns=None):
+                 columns=None, spacing: str = "quantile"):
+        if spacing not in ("quantile", "uniform"):
+            raise ValueError("spacing must be 'quantile' or 'uniform'")
+        self.spacing = spacing
         self.n_centers = int(n_centers)
         self.bandwidth = bandwidth
         self.scale = scale
@@ -214,7 +223,10 @@ class NystromBasis(_Basis):
     def fit(self, X_flat):
         X = self._cols(_flat(X_flat))
         m = self.n_centers
-        if X.shape[1] == 1:
+        if X.shape[1] == 1 and self.spacing == "uniform":
+            lo, hi = float(X[:, 0].min()), float(X[:, 0].max())
+            C = (lo + (hi - lo) * (np.arange(m) + 0.5) / m)[:, None]
+        elif X.shape[1] == 1:
             C = np.quantile(X[:, 0], (np.arange(m) + 0.5) / m)[:, None]
         else:
             from sklearn.cluster import KMeans

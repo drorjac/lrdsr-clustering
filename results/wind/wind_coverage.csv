@@ -1,0 +1,2 @@
+blocks,first_block,last_block,median_bins_covered,bins_total,cold_0,cold_1,waked_0,waked_1,night_0,night_1,ws_sd_missing,night_day_max_departure,turbulence_ratio_5ms
+14626,2016-04-15 00:00:00,2017-12-31 18:00:00,7.0,24,7116,7116,7398,1853,3641,3667,0.8436871376168501,0.01668643518988977,1.1843657879253655

@@ -26,6 +26,9 @@ the calendar day type -- a **proxy**, used for scoring only.
 ``learned_loss``    which noise family real residuals pick
 ``gaps``            the 616 traffic days with sensor gaps, scored at their
                     observed hours (``experiments.realdata.gaps``)
+``partial``         V11: a partial day's error predicted from its observed
+                    hours, and the hour a day is decided
+                    (``experiments.realdata.partial``)
 ==================  =======================================================
 
 A fact that shapes every number here: on these series every window has the
@@ -463,8 +466,11 @@ def run(args=None) -> None:
     print(ll.round(3).to_string(index=False))
 
     print("\n--- the traffic days with sensor gaps ---", flush=True)
-    from experiments.realdata import gaps
+    from experiments.realdata import gaps, partial
     gaps.run()
+
+    print("\n--- V11: predicting a partial day's error ---", flush=True)
+    partial.run()
     print(f"\n[realdata] {(time.time() - t0) / 60:.1f} min; CSVs -> {RESULTS}")
 
 

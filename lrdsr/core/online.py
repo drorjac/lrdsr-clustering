@@ -78,12 +78,22 @@ class OnlineLRDSR:
     prior_count : float
         Pseudo-count added to every regime's weight, so a new regime is not
         dismissed for being new.
+    nuisance : ``"intercept"``, callable or None
+        Columns whose coefficient is free per window, profiled out of each
+        window's design and response before it is scored or absorbed (the
+        ``LawClassifier`` convention). ``"intercept"`` makes a window's level
+        a nuisance -- a day of traffic whose volume is high overall is not a
+        new regime. The chi-square degrees of freedom drop accordingly.
+
+    Windows may have different lengths (a day with missing hours): every
+    statistic is per window, and a data-dependent ``basis`` (a
+    ``NystromBasis``) is fitted on the warm-start inputs.
     """
 
     def __init__(self, basis=None, feature_names: list[str] | None = None,
                  forgetting: float = 1.0, novelty_alpha: float = 1e-3,
                  novelty_patience: int = 6, max_clusters: int = 8,
-                 ridge: float = 1e-6, prior_count: float = 2.0):
+                 ridge: float = 1e-6, prior_count: float = 2.0, nuisance=None):
         if not 0.0 < forgetting <= 1.0:
             raise ValueError("forgetting must be in (0, 1]")
         self.basis = basis
@@ -94,6 +104,7 @@ class OnlineLRDSR:
         self.max_clusters = int(max_clusters)
         self.ridge = ridge
         self.prior_count = prior_count
+        self.nuisance = nuisance
         self.A_: list[np.ndarray] = []
         self.b_: list[np.ndarray] = []
         self.c_: list[float] = []
@@ -112,6 +123,20 @@ class OnlineLRDSR:
             return library_terms(X_w, feature_names=self.feature_names)[0]
         P = np.asarray(self.basis(X_w), dtype=float)
         return P[:, None] if P.ndim == 1 else P
+
+    def _design(self, X_w, y_w):
+        """``(Phi~, y~, dof)``: the window's design and response with the
+        nuisance profiled out, and the samples left after profiling."""
+        Phi = self._phi(X_w)
+        y = np.asarray(y_w, dtype=float).ravel()
+        if self.nuisance is None:
+            return Phi, y, len(y)
+        from .classify import _as_matrix, intercept
+        N = _as_matrix(intercept if self.nuisance == "intercept" else self.nuisance,
+                       np.asarray(X_w, float).reshape(len(y), -1))
+        Qn, _ = np.linalg.qr(N)
+        return (Phi - Qn @ (Qn.T @ Phi), y - Qn @ (Qn.T @ y),
+                max(len(y) - N.shape[1], 1))
 
     @property
     def n_clusters(self) -> int:
@@ -143,12 +168,13 @@ class OnlineLRDSR:
         return c / c.sum()
 
     # ----------------------------------------------------------- bookkeeping
-    def _add(self, k: int, Phi: np.ndarray, y: np.ndarray, weight: float = 1.0):
+    def _add(self, k: int, Phi: np.ndarray, y: np.ndarray, weight: float = 1.0,
+             dof: int | None = None):
         lam = self.forgetting
         self.A_[k] = lam * self.A_[k] + weight * Phi.T @ Phi
         self.b_[k] = lam * self.b_[k] + weight * Phi.T @ y
         self.c_[k] = lam * self.c_[k] + weight * float(y @ y)
-        self.m_[k] = lam * self.m_[k] + weight * len(y)
+        self.m_[k] = lam * self.m_[k] + weight * (len(y) if dof is None else dof)
         self.count_[k] = lam * self.count_[k] + weight
 
     def _new_regime(self, p: int):
@@ -170,37 +196,51 @@ class OnlineLRDSR:
         with ``n_clusters`` regimes is fitted first and its responsibilities
         weight each window. Either way no true label is involved.
         """
-        X_seq = np.asarray(X_seq, dtype=float)
-        if X_seq.ndim == 2:
-            X_seq = X_seq[:, :, None]
-        y_seq = np.asarray(y_seq, dtype=float)
+        from .kernel import _windows
+
+        Xs, ys = _windows(X_seq, y_seq)
+        if self.basis is not None and hasattr(self.basis, "fit") and \
+                not getattr(self.basis, "fitted", True):
+            self.basis.fit(np.vstack(Xs))
+        equal = len({len(v) for v in ys}) == 1
         if labels is None:
             if n_clusters is None:
                 raise ValueError("pass labels or n_clusters")
-            res = SoftLRDSR(n_clusters, basis=self.basis, feature_names=self.feature_names,
-                            random_state=random_state).fit(X_seq, y_seq)
-            R = res.responsibilities
+            if equal and self.nuisance is None:
+                # the original route, unchanged: soft EM on equal-length windows
+                res = SoftLRDSR(n_clusters, basis=self.basis,
+                                feature_names=self.feature_names,
+                                random_state=random_state).fit(np.stack(Xs), np.stack(ys))
+                R = res.responsibilities
+            else:
+                # ragged windows or a nuisance: each window's own whitened law
+                # (mechanism features, solve mode), K-means, hard statistics
+                from sklearn.cluster import KMeans
+
+                from .classify import MechanismFeatures
+                S = MechanismFeatures(basis=self.basis, feature_names=self.feature_names,
+                                      nuisance=self.nuisance, mode="solve").fit_transform(Xs, ys)
+                lab = KMeans(n_clusters, n_init=30, random_state=random_state).fit_predict(S)
+                R = np.eye(n_clusters)[lab]
         else:
             labels = np.asarray(labels, int)
             R = np.eye(labels.max() + 1)[labels]
-        p = self._phi(X_seq[0]).shape[1]
+        p = self._phi(Xs[0]).shape[1]
         for _ in range(R.shape[1]):
             self._new_regime(p)
         lam, self.forgetting = self.forgetting, 1.0      # history is not forgotten
-        for w in range(X_seq.shape[0]):
-            Phi = self._phi(X_seq[w])
+        for w in range(len(Xs)):
+            Phi, y, dof = self._design(Xs[w], ys[w])
             for k in range(R.shape[1]):
                 if R[w, k] > 1e-6:
-                    self._add(k, Phi, y_seq[w], R[w, k])
+                    self._add(k, Phi, y, R[w, k], dof=dof)
         self.forgetting = lam
         return self
 
     # ----------------------------------------------------------------- score
     def score_window(self, X_w, y_w) -> tuple[np.ndarray, np.ndarray]:
         """``(loglik, chi2 statistic)`` of one window under every regime."""
-        Phi = self._phi(X_w)
-        y = np.asarray(y_w, dtype=float).ravel()
-        n = len(y)
+        Phi, y, n = self._design(X_w, y_w)
         L, Q = np.empty(self.n_clusters), np.empty(self.n_clusters)
         for k in range(self.n_clusters):
             s = self._sigma(k)
@@ -219,10 +259,8 @@ class OnlineLRDSR:
         """Assign one window now; fold it into its law unless it is novel."""
         if self.n_clusters == 0:
             raise RuntimeError("no regimes yet: call warm_start first")
-        Phi = self._phi(X_w)
-        y = np.asarray(y_w, dtype=float).ravel()
-        n = len(y)
-        L, Q = self.score_window(X_w, y)
+        Phi, y, n = self._design(X_w, y_w)
+        L, Q = self.score_window(X_w, y_w)
         joint = np.log(self.weights_) + L
         post = np.exp(joint - logsumexp(joint))
         k = int(np.argmax(post))
@@ -232,12 +270,12 @@ class OnlineLRDSR:
         label = k
         if novel:
             label = -1
-            self.buffer_.append((self.t_, Phi, y))
+            self.buffer_.append((self.t_, Phi, y, n))
             spawned = self._maybe_spawn(n)
             if spawned is not None:
                 label = spawned
         elif update:
-            self._add(k, Phi, y)
+            self._add(k, Phi, y, dof=n)
         a = Assignment(self.t_, label, post, L, p_val, bool(novel), spawned)
         self.log_.append({"t": self.t_, "label": label, "map": k, "p_value": p_val,
                           "novel": bool(novel), "spawned": spawned,
@@ -263,23 +301,27 @@ class OnlineLRDSR:
             self.buffer_.pop(0)
             return None
         p = self.buffer_[0][1].shape[1]
-        A = sum(Phi.T @ Phi for _, Phi, _ in self.buffer_)
-        b = sum(Phi.T @ y for _, Phi, y in self.buffer_)
+        A = sum(Phi.T @ Phi for _, Phi, _, _ in self.buffer_)
+        b = sum(Phi.T @ y for _, Phi, y, _ in self.buffer_)
         beta = np.linalg.solve(A + self.ridge * max(np.trace(A) / p, 1e-12) * np.eye(p), b)
-        rss = [float(np.sum((y - Phi @ beta) ** 2)) for _, Phi, y in self.buffer_]
+        rss = [float(np.sum((y - Phi @ beta) ** 2)) for _, Phi, y, _ in self.buffer_]
+        dofs = [d for _, _, _, d in self.buffer_]
         # Judge the candidate law against the noise level the EXISTING regimes
         # measure, not against the buffer's own residual spread: estimated
         # from the buffer, the noise absorbs whatever the joint law fails to
         # explain, and any mixture of ordinary windows looks "consistent".
         w = np.asarray(self.count_) + 1e-12
         s2 = float(np.sum(w * self.sigma_ ** 2) / np.sum(w))
-        ok = np.mean([chi2.sf(r / s2, df=n) >= self.novelty_alpha for r in rss])
+        # each buffered window against its OWN degrees of freedom (windows
+        # may differ in length); identical to the old test when they do not
+        ok = np.mean([chi2.sf(r / s2, df=d) >= self.novelty_alpha
+                      for r, d in zip(rss, dofs, strict=True)])
         if ok < 0.8:
             self.buffer_.pop(0)
             return None
         k = self._new_regime(p)
-        for _, Phi, y in self.buffer_:
-            self._add(k, Phi, y)
+        for _, Phi, y, d in self.buffer_:
+            self._add(k, Phi, y, dof=d)
         self.buffer_.clear()
         return k
 
@@ -289,12 +331,12 @@ class OnlineLRDSR:
 
         ``true_labels_for_eval`` is only copied into the returned frame.
         """
-        X_seq = np.asarray(X_seq, dtype=float)
-        if X_seq.ndim == 2:
-            X_seq = X_seq[:, :, None]
+        from .kernel import _windows
+
+        Xs, ys = _windows(X_seq, y_seq)
         start = len(self.log_)
-        for w in range(X_seq.shape[0]):
-            self.partial_fit(X_seq[w], y_seq[w], update=update)
+        for w in range(len(Xs)):
+            self.partial_fit(Xs[w], ys[w], update=update)
         df = pd.DataFrame(self.log_[start:])
         if true_labels_for_eval is not None:
             df["truth"] = np.asarray(true_labels_for_eval)

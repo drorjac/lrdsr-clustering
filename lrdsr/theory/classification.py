@@ -252,3 +252,76 @@ def v10_verdict(df: pd.DataFrame, n: int = N_WINDOW) -> pd.DataFrame:
         df[f"in_band_{col.replace('predicted_', '') if col != 'predicted' else 'applicable'}"] = (
             (df["simulated"] - df[col]).abs() <= df["band"])
     return df
+
+
+# ==========================================================================
+# the random design, exactly
+# ==========================================================================
+def plugin_error_design(D2: float, p: int, m: int, n: int = N_WINDOW,
+                        draws: int = 4000, seed: int = 0) -> float:
+    """Expected plug-in error at a random design, with no approximation.
+
+    The two corrections of :func:`plugin_error_random_design` are first
+    order in ``p / (m n)`` and fail once the inverse-Wishart tail of the
+    estimated laws takes over. This takes the expectation directly, over
+    what is random and nothing else: training designs (``m`` windows of ``n``
+    uniform inputs per class), the least-squares laws they give --
+    ``beta^_c ~ N(beta_c, sigma^2 (B_c^T B_c)^-1)``, sampled exactly, not
+    simulated through the classifier -- and a test design. The test noise is
+    integrated analytically: a window of law ``c`` with plug-in laws
+    ``h_0, h_1`` at its inputs is misassigned with probability
+    ``Q(+/-(f_c - hbar)^T d / (sigma |d|))``, ``d = h_1 - h_0``,
+    ``hbar = (h_0 + h_1)/2``. It is exact for the experiment of
+    :func:`run_v10` up to the Monte-Carlo error of ``draws``.
+    """
+    from lrdsr.core.kernel import CosineBasis
+
+    rng = np.random.default_rng([seed, p, m, int(D2 * 100)])
+    b_true, beta0, beta1 = _laws()
+    xx = np.linspace(0, 1, 20001)[:, None]
+    gms = float(np.mean((b_true(xx) @ (beta1 - beta0)) ** 2))
+    sigma = np.sqrt(n * gms / D2)
+    b = CosineBasis(p, lo=0.0, hi=1.0)
+    # the true laws in the classifier's basis: the cosine bases are nested
+    B0 = np.zeros(p)
+    B1 = np.zeros(p)
+    k = min(p, len(beta0))
+    B0[:k], B1[:k] = beta0[:k], beta1[:k]
+    total = 0.0
+    for _ in range(draws):
+        est = []
+        for beta in (B0, B1):
+            B = b(rng.uniform(0.0, 1.0, (m * n, 1)))
+            A = B.T @ B
+            A += 1e-6 * max(np.trace(A) / p, 1e-12) * np.eye(p)   # the classifier's ridge
+            L = np.linalg.cholesky(np.linalg.inv(A))
+            est.append(beta + sigma * L @ rng.normal(size=p))
+        Bt = b(rng.uniform(0.0, 1.0, (n, 1)))
+        h0, h1 = Bt @ est[0], Bt @ est[1]
+        d = h1 - h0
+        nd = np.linalg.norm(d)
+        if nd == 0:
+            total += 0.5
+            continue
+        hbar = 0.5 * (h0 + h1)
+        e1 = Q(((Bt @ B1) - hbar) @ d / (sigma * nd))
+        e0 = Q(-((Bt @ B0) - hbar) @ d / (sigma * nd))
+        total += 0.5 * (e0 + e1)
+    return total / draws
+
+
+def run_v10_design(draws: int = 4000) -> pd.DataFrame:
+    """The design-exact form against every random-design cell of V10."""
+    from joblib import Parallel, delayed
+
+    df = pd.read_csv(RESULTS / "v10_learning_curve.csv")
+    r = df[df.design == "random"].copy()
+    r["predicted_design_exact"] = Parallel(n_jobs=-1)(
+        delayed(plugin_error_design)(D2, p, m, draws=draws)
+        for D2, p, m in zip(r.D2, r.p, r.m, strict=True))
+    # the band now also carries the prediction's own Monte-Carlo error
+    mc = np.sqrt(r.predicted_design_exact.clip(1e-6) / draws)
+    r["in_band_design_exact"] = ((r.simulated - r.predicted_design_exact).abs()
+                                 <= np.sqrt(r.band ** 2 + (2 * mc) ** 2))
+    r.to_csv(RESULTS / "v10_design_exact.csv", index=False)
+    return r

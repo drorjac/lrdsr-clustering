@@ -13,8 +13,11 @@ spans a function space whose resolution is one knob, its rank. So:
                     rank, and the share of the gap each rank leaves outside
                     its span. The bias-variance curve of the kernel basis.
 ``rule``            which *label-free* rank rule to use -- per-window
-                    leave-one-out (``min`` / ``1se``) or the spectral SNR
-                    of mechanism space -- chosen on the TUNING seeds
+                    leave-one-out (``min`` / ``1se``), or the spectral SNR
+                    of mechanism space (its maximum, the smallest rank
+                    within one bootstrap SE of it, or the maximum of the
+                    curve smoothed over neighbouring ranks) -- chosen on the
+                    TUNING seeds
 ``zoo``             on the REPORTING seeds, with the chosen rule: kernel
                     mechanism K-means and soft EM in the kernel basis,
                     against the oracle, the library method and the raw
@@ -56,7 +59,9 @@ RHO_GRID = (0.1, 0.25, 1.0)
 N_WINDOWS = 150
 WINDOW_LEN = 48
 RANKS = (4, 8, 12, 16, 24, 32, 48)
-RULES = ("loo_min", "loo_1se", "snr")
+RULES = ("loo_min", "loo_1se", "snr", "snr_1se", "snr_smooth")
+#: bootstrap resamples of the windows for the SNR's standard error
+N_BOOT = 50
 
 
 def gap_outside_basis(problem, basis, n: int = 4000, seed: int = 0) -> float:
@@ -91,6 +96,13 @@ def _snr(S, sigma):
     return excess / (np.sqrt(p) * sigma ** 2)
 
 
+def _snr_se(S, sigma, seed):
+    """Bootstrap standard error of :func:`_snr`, resampling windows."""
+    rng = np.random.default_rng(seed)
+    vals = [_snr(S[rng.integers(0, len(S), len(S))], sigma) for _ in range(N_BOOT)]
+    return float(np.std(vals, ddof=1))
+
+
 def sweep_cell(problem, rho, seed):
     """Every rank: error, gap outside the span, and the three rules' scores."""
     sigma = sigma_for_rho(problem, rho)
@@ -104,13 +116,15 @@ def sweep_cell(problem, rho, seed):
         S = mechanism_features(X, y, basis=b)
         lab = _kmeans(S, problem.K, seed)
         per = [loo_error(X[w:w + 1], y[w:w + 1], b) for w in range(len(X))]
+        sig = mechanism_noise(X, y, basis=b)
         rows.append({
             "problem": problem.name, "K": problem.K, "rho": rho, "seed": seed,
             "basis_rank": b.rank, "basis_size": r, "error": _err(z, lab),
             "gap_outside": gap_outside_basis(problem, b),
             "loo": float(np.mean(per)),
             "loo_se": float(np.std(per, ddof=1) / np.sqrt(len(per))),
-            "snr": _snr(S, mechanism_noise(X, y, basis=b)),
+            "snr": _snr(S, sig),
+            "snr_se": _snr_se(S, sig, seed),
         })
     return rows
 
@@ -125,6 +139,14 @@ def choose(g: pd.DataFrame, rule: str) -> int:
         return int(g[g.loo <= best.loo + best.loo_se].iloc[0]["basis_size"])
     if rule == "snr":
         return int(g.loc[g.snr.idxmax(), "basis_size"])
+    if rule == "snr_1se":
+        # the smallest rank whose SNR is within one bootstrap SE of the best
+        best = g.loc[g.snr.idxmax()]
+        return int(g[g.snr >= best.snr - best.snr_se].iloc[0]["basis_size"])
+    if rule == "snr_smooth":
+        # the maximum of the SNR curve averaged over neighbouring ranks
+        sm = g.snr.rolling(3, center=True, min_periods=1).mean()
+        return int(g.loc[sm.idxmax(), "basis_size"])
     raise ValueError(rule)
 
 

@@ -19,6 +19,8 @@
                                       #   one failure, and a label-free rank
     python -m experiments classify    # classification: the learning curve
                                       #   (V10) and 24 UCR datasets
+    python -m experiments wind        # wind power curves, every window its
+                                      #   own design (Kelmarsh SCADA)
     python -m experiments all
 
 Each block writes CSVs to ``results/<block>/``. The figures and every number
@@ -60,6 +62,9 @@ SECTIONS = {
     "classify": ("experiments.classify.run",
                  "classification: the plug-in learning curve of a law classifier "
                  "(V10), and 24 UCR datasets -- full, few-shot, irregular, clustering"),
+    "wind": ("experiments.wind.run",
+             "wind power curves: six-hour turbine blocks, each with its own wind "
+             "speeds, against the method of bins and physical proxies"),
 }
 
 

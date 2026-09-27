@@ -36,7 +36,7 @@ from .backends import FastSymbolicRegressor
 from .kernel import _windows
 from .soft import library_terms
 
-__all__ = ["LawClassifier", "MechanismFeatures", "as_windows", "intercept"]
+__all__ = ["LawClassifier", "LawStack", "MechanismFeatures", "as_windows", "intercept"]
 
 
 def as_windows(X_seq, y_seq):
@@ -147,12 +147,20 @@ class LawClassifier:
     ridge : float
         Relative ridge on the normal equations (per law, and per window for
         ``L = "all"``).
+    shift_grid : array, optional
+        Phase as a nuisance: shifts ``tau`` of the first input. A window is
+        scored against each law at its best shift, ``min_tau RSS(y, f(x - tau))``,
+        and the laws of a class are fitted to its windows aligned the same way
+        (``align_iter`` rounds of fit-then-align). The level nuisance removes
+        *how much*, this removes *when* -- the difference between a law and a
+        pattern that is played early or late.
     """
 
     def __init__(self, basis=None, feature_names=None, nuisance="intercept",
                  laws_per_class=1, law: str = "dense", sigma: str = "shared",
                  priors: str = "empirical", ridge: float = 1e-6,
-                 max_terms: int = 5, max_iter: int = 10, random_state: int = 0):
+                 max_terms: int = 5, max_iter: int = 10, random_state: int = 0,
+                 shift_grid=None, align_iter: int = 3):
         if law not in ("dense", "symbolic"):
             raise ValueError("law must be 'dense' or 'symbolic'")
         if law == "symbolic" and laws_per_class != 1:
@@ -174,6 +182,26 @@ class LawClassifier:
         self.max_terms = max_terms
         self.max_iter = max_iter
         self.random_state = random_state
+        self.shift_grid = None if shift_grid is None else np.asarray(shift_grid, float)
+        if self.shift_grid is not None and law == "symbolic":
+            raise ValueError("shift_grid needs law='dense'")
+        self.align_iter = align_iter
+
+    # ------------------------------------------------------------------ warp
+    @staticmethod
+    def _shifted(Xs, taus):
+        """Windows with the first input moved by ``-tau`` each: ``y(x)`` is then
+        compared with ``f(x - tau)``, the law played ``tau`` later."""
+        out = []
+        for x, t in zip(Xs, np.broadcast_to(taus, (len(Xs),)), strict=True):
+            x = np.array(x, dtype=float, copy=True)
+            x[:, 0] -= t
+            out.append(x)
+        return out
+
+    @property
+    def _shifting(self) -> bool:
+        return self.shift_grid is not None and len(self.shift_grid) > 1
 
     # --------------------------------------------------- sufficient statistics
     @staticmethod
@@ -255,17 +283,28 @@ class LawClassifier:
             self.coef_, self.law_class_ = None, np.arange(len(self.classes_))
             self.law_weight_ = np.ones(len(self.classes_))
         else:
-            G, a, yy, dof = self._stats(prof)
-            coefs, owner, weights = [], [], []
-            for c in range(len(self.classes_)):
-                idx = np.flatnonzero(cls == c)
-                cf, wt = self._class_laws(G[idx], a[idx], yy[idx])
-                coefs.append(cf)
-                owner += [c] * len(cf)
-                weights.append(wt)
-            self.coef_ = np.vstack(coefs)
-            self.law_class_ = np.asarray(owner)
-            self.law_weight_ = np.concatenate(weights)
+            # the warp: alternate fitting the class laws and aligning each
+            # training window to its own class (per-window laws, L = "all",
+            # are their own alignment and need no loop)
+            align = self._shifting and self.laws_per_class != "all"
+            self.train_shift_ = np.zeros(len(Xs))
+            for it in range(1 + (self.align_iter if align else 0)):
+                Xa = self._shifted(Xs, self.train_shift_) if it else Xs
+                G, a, yy, dof = self._stats(self.design_.profile_all(Xa, ys) if it else prof)
+                coefs, owner, weights = [], [], []
+                for c in range(len(self.classes_)):
+                    idx = np.flatnonzero(cls == c)
+                    cf, wt = self._class_laws(G[idx], a[idx], yy[idx])
+                    coefs.append(cf)
+                    owner += [c] * len(cf)
+                    weights.append(wt)
+                self.coef_ = np.vstack(coefs)
+                self.law_class_ = np.asarray(owner)
+                self.law_weight_ = np.concatenate(weights)
+                if not align or it == self.align_iter:
+                    break
+                _, tau = self._rss_over_shifts(Xs, ys, own_class=cls)
+                self.train_shift_ = tau
             R = self._rss_stats(G, a, yy, self.coef_)
             # a window's own law (L = "all") fits it perfectly in-sample, so
             # the noise level is read off each window's best law in ANOTHER
@@ -304,11 +343,35 @@ class LawClassifier:
             out[idx] = np.sum((yt[..., None] - Pt) ** 2, axis=1)
         return out
 
+    def _rss_over_shifts(self, Xs, ys, own_class=None):
+        """``(W, J)`` RSS minimised over the shift grid, and each window's best
+        shift -- over all laws, or over its own class's laws (alignment)."""
+        best = None
+        for t in self.shift_grid:
+            R = self._law_rss_plain(self._shifted(Xs, t), ys)
+            if best is None:
+                best, arg = R, np.zeros(R.shape)
+            else:
+                better = R < best
+                best = np.where(better, R, best)
+                arg = np.where(better, t, arg)
+        if own_class is None:
+            return best, arg
+        cols = [np.flatnonzero(self.law_class_ == c) for c in own_class]
+        pick = np.array([c[np.argmin(best[w, c])] for w, c in enumerate(cols)])
+        return best, arg[np.arange(len(Xs)), pick]
+
     def law_rss(self, X_seq, y_seq, batch: int = 2048) -> np.ndarray:
-        """``(W, J)``: each window's residual sum of squares under every law."""
+        """``(W, J)``: each window's residual sum of squares under every law --
+        at the best shift of the grid when ``shift_grid`` is set."""
         Xs, ys = as_windows(X_seq, y_seq)
         if self.law == "symbolic":
             return self._rss_symbolic(Xs, ys)
+        if self._shifting:
+            return self._rss_over_shifts(Xs, ys)[0]
+        return self._law_rss_plain(Xs, ys, batch)
+
+    def _law_rss_plain(self, Xs, ys, batch: int = 2048) -> np.ndarray:
         out = []
         for s in range(0, len(Xs), batch):
             G, a, yy, _ = self._stats(self.design_.profile_all(Xs[s:s + batch],
@@ -430,3 +493,72 @@ class MechanismFeatures:
 
     def fit_transform(self, X_seq, y_seq, labels=None) -> np.ndarray:
         return self.fit(X_seq, y_seq).transform(X_seq, y_seq)
+
+
+class LawStack:
+    """A discriminative head on laws: logistic regression on law evidence.
+
+    ``LawClassifier`` is generative -- it decides by the likelihood its laws
+    give a window, with the noise level and priors it estimated -- and on a
+    full training set a tuned discriminative classifier on the raw profile
+    beats it. This keeps the laws as the representation and learns the
+    decision: each window's class log-posteriors and its per-class best-law
+    residual (per sample) are the features, and a logistic regression maps
+    them to the class.
+
+    The features of training windows are **cross-fitted**: each comes from a
+    ``LawClassifier`` fitted on the other folds, so the head is trained on
+    evidence of the kind it will see on new windows, not on in-sample fits
+    (a window's own law explains it perfectly when ``L = "all"``). New
+    windows get the features of a ``LawClassifier`` fitted on every training
+    window.
+    """
+
+    def __init__(self, make_law, n_folds: int = 5, C_grid=(0.01, 0.1, 1.0, 10.0),
+                 random_state: int = 0):
+        self.make_law = make_law
+        self.n_folds = n_folds
+        self.C_grid = C_grid
+        self.random_state = random_state
+
+    def _features(self, law, Xs, ys) -> np.ndarray:
+        post = np.log(np.clip(law.predict_proba(Xs, ys), 1e-300, 1.0))
+        R = law.law_rss(Xs, ys)
+        n = np.array([len(v) for v in ys], float)[:, None]
+        best = np.column_stack([R[:, law.law_class_ == c].min(axis=1)
+                                for c in range(len(law.classes_))]) / n
+        return np.column_stack([post, np.log(best + 1e-12)])
+
+    def fit(self, X_seq, y_seq, labels):
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import GridSearchCV, StratifiedKFold
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        Xs, ys = as_windows(X_seq, y_seq)
+        labels = np.asarray(labels)
+        k = int(min(self.n_folds, np.bincount(np.unique(labels, return_inverse=True)[1]).min()))
+        F = None
+        if k >= 2:
+            folds = StratifiedKFold(k, shuffle=True, random_state=self.random_state)
+            for tr, va in folds.split(np.zeros(len(labels)), labels):
+                law = self.make_law().fit([Xs[i] for i in tr], [ys[i] for i in tr],
+                                          labels[tr])
+                f = self._features(law, [Xs[i] for i in va], [ys[i] for i in va])
+                if F is None:
+                    F = np.zeros((len(labels), f.shape[1]))
+                F[va] = f
+        self.law_ = self.make_law().fit(Xs, ys, labels)
+        if F is None:                      # too few windows to cross-fit
+            F = self._features(self.law_, Xs, ys)
+        head = make_pipeline(StandardScaler(), LogisticRegression(max_iter=5000))
+        if k >= 2:
+            head = GridSearchCV(head, {"logisticregression__C": list(self.C_grid)},
+                                cv=StratifiedKFold(k, shuffle=True,
+                                                   random_state=self.random_state))
+        self.head_ = head.fit(F, labels)
+        return self
+
+    def predict(self, X_seq, y_seq) -> np.ndarray:
+        Xs, ys = as_windows(X_seq, y_seq)
+        return self.head_.predict(self._features(self.law_, Xs, ys))

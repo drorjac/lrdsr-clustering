@@ -1,0 +1,17 @@
+{
+  "Kelmarsh_SCADA_2016_3082.zip": {
+    "url": "https://zenodo.org/records/5841834/files/Kelmarsh_SCADA_2016_3082.zip?download=1",
+    "sha256": "4e8a73aeb823aeb21a2c7829f14434e44eea523f1d7f9be0177ff1b76e3ded27",
+    "bytes": 97915553
+  },
+  "Kelmarsh_SCADA_2017_3083.zip": {
+    "url": "https://zenodo.org/records/5841834/files/Kelmarsh_SCADA_2017_3083.zip?download=1",
+    "sha256": "528c942caec09bf02a25651cb13b6ecb13d4a09d287b2bb546f10adc614a14e3",
+    "bytes": 174604722
+  },
+  "Kelmarsh_WT_static.csv": {
+    "url": "https://zenodo.org/records/5841834/files/Kelmarsh_WT_static.csv?download=1",
+    "sha256": "a249919471580244d41a547e407ef371d45f2d5347a59bc23cf3c980f607ee93",
+    "bytes": 807
+  }
+}
