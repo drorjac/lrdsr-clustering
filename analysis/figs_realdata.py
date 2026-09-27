@@ -121,8 +121,44 @@ def realdata_online():
     return fig
 
 
+def realdata_gaps():
+    """I-94 days with sensor gaps: the law at the observed hours against imputation.
+
+    Left: the real partial days, label-free (laws from clustering the
+    complete days), accuracy against the calendar by hours observed.
+    Right: the controlled version -- real gap masks transplanted onto
+    complete days -- agreement with the same route's full-day decision.
+    ``n`` under each group is the number of days in it.
+    """
+    style()
+    s = _csv("realdata_gaps_summary.csv")
+    s = s[(s.arm == "assign") & (s.hours_bin != "all")]
+    t = _csv("realdata_gaps_transplant.csv")
+    order = ["(5, 11]", "(11, 17]", "(17, 22]", "(22, 23]"]
+    ticks = ["6-11", "12-17", "18-22", "23"]
+    routes = (("law", "law at the observed hours", C["mech"], "o", "-"),
+              ("profile_mean", "impute hour means, then profile", C["feat"], "s", "--"),
+              ("profile_linear", "impute linearly, then profile", C["oracle"], "^", ":"))
+    fig, axes = plt.subplots(1, 2, figsize=(W + 0.6, 3.0), sharey=True)
+    for ax, df, col, title in ((axes[0], s, "accuracy", "real gap days vs calendar"),
+                               (axes[1], t, "agrees_with_full_day",
+                                "transplanted gaps vs full-day decision")):
+        for route, lab, c, mk, ls in routes:
+            g = df[df.route == route].set_index("hours_bin").reindex(order)
+            ax.plot(range(len(order)), g[col], ls, marker=mk, color=c, label=lab)
+        nn = df[df.route == "law"].set_index("hours_bin").reindex(order)
+        ncol = "n_days" if "n_days" in nn else "n"
+        ax.set_xticks(range(len(order)))
+        ax.set_xticklabels([f"{tk}\nn={int(v)}" for tk, v in zip(ticks, nn[ncol], strict=True)])
+        ax.set(xlabel="hours observed", title=title, ylim=(0.65, 1.01))
+    axes[0].set_ylabel("share of days")
+    axes[0].legend(loc="lower right", fontsize=7.5)
+    fig.tight_layout()
+    return fig
+
+
 FIGURES = {"realdata_laws": realdata_laws, "realdata_methods": realdata_methods,
-           "realdata_online": realdata_online}
+           "realdata_online": realdata_online, "realdata_gaps": realdata_gaps}
 
 
 def main() -> int:

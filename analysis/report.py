@@ -104,6 +104,9 @@ def numbers() -> dict:
     n.update(losses_numbers())
     n.update(online_numbers())
     n.update(realdata_numbers())
+    n.update(gaps_numbers())
+    n.update(kernel_numbers())
+    n.update(classify_numbers())
     return n
 
 
@@ -263,6 +266,154 @@ def problems_numbers() -> dict:
     n["zoo_outlib_n"] = len(outlib)
     n["zoo_outlib_gap_lrdsr"] = float(
         s[s.problem.isin(outlib.problem)].lrdsr_gap.mean())
+    return n
+
+
+def gaps_numbers() -> dict:
+    """The I-94 days with sensor gaps: laws at the observed hours vs imputation."""
+    n: dict = {}
+    cov = _csv("realdata", "realdata_gaps_coverage.csv").iloc[0]
+    n["gap_days"] = int(cov.partial)
+    n["gap_complete"] = int(cov.complete)
+    n["gap_min_hours"] = int(cov.min_hours)
+    s = _csv("realdata", "realdata_gaps_summary.csv")
+    a = s[s.arm == "assign"].set_index(["hours_bin", "route"])
+    for b, key in (("all", "all"), ("(5, 11]", "lo"), ("(11, 17]", "mid")):
+        for r, rk in (("law", "law"), ("profile_linear", "lin"), ("profile_mean", "mean")):
+            n[f"gap_{key}_{rk}"] = float(a.loc[(b, r), "accuracy"])
+        n[f"gap_{key}_n"] = int(a.loc[(b, "law"), "n_days"])
+    sup = s[(s.arm == "supervised") & (s.hours_bin == "all")].set_index("route")
+    n["gap_sup_law"] = float(sup.loc["law", "accuracy"])
+    n["gap_sup_mean"] = float(sup.loc["profile_mean", "accuracy"])
+    t = _csv("realdata", "realdata_gaps_transplant.csv").set_index(["hours_bin", "route"])
+    for r, rk in (("law", "law"), ("profile_linear", "lin"), ("profile_mean", "mean")):
+        n[f"tp_lo_{rk}"] = float(t.loc[("(5, 11]", r), "agrees_with_full_day"])
+        n[f"tp_mid_{rk}"] = float(t.loc[("(11, 17]", r), "agrees_with_full_day"])
+    n["tp_lo_n"] = int(t.loc[("(5, 11]", "law"), "n"])
+    return n
+
+
+def kernel_numbers() -> dict:
+    """The kernel basis on the problem zoo."""
+    n: dict = {}
+    z = _csv("kernel", "kernel_zoo.csv")
+    g = z.groupby("method").gap_to_oracle.mean()
+    for m in ("mech_library", "mech_kernel", "soft_em_library", "soft_em_kernel",
+              "profile_kmeans"):
+        n[f"k_gap_{m}"] = float(g[m])
+    hf = z[z.problem == "high_frequency"].groupby("method").gap_to_oracle.mean()
+    for m in ("mech_library", "mech_kernel", "soft_em_library", "soft_em_kernel"):
+        n[f"k_hf_{m}"] = float(hf[m])
+    per = z.groupby(["problem", "method"]).gap_to_oracle.mean().unstack()
+    n["k_problems"] = len(per)
+    n["k_soft_better"] = int((per.soft_em_kernel < per.soft_em_library - 1e-9).sum())
+    n["k_soft_worse_002"] = int((per.soft_em_kernel > per.soft_em_library + 0.002).sum())
+    cat = _csv("kernel", "kernel_gap_catalog.csv").set_index("problem")
+    n["k_hf_out_lib"] = float(100 * cat.loc["high_frequency", "gap_outside_library"])
+    n["k_hf_out_16"] = float(100 * cat.loc["high_frequency", "gap_outside_nystrom_16"])
+    tune = _csv("kernel", "kernel_rules_tune.csv")
+    for r in ("loo_min", "loo_1se", "snr"):
+        n[f"k_tune_{r}"] = float(tune[f"{r}_error"].mean())
+    n["k_tune_best"] = float(tune.best_rank_error.mean())
+    rep = _csv("kernel", "kernel_rules.csv")
+    n["k_rule"] = str(rep.rule_chosen_on_tune.iloc[0])
+    n["k_rep_snr"] = float(rep.snr_error.mean())
+    n["k_rep_loo"] = float(rep.loo_min_error.mean())
+    n["k_rep_best"] = float(rep.best_rank_error.mean())
+    h = rep[rep.problem == "high_frequency"].groupby("rho")
+    n["k_hf_loo_r025"] = float(h.loo_min_error.mean()[0.25])
+    n["k_hf_snr_r025"] = float(h.snr_error.mean()[0.25])
+    n["k_hf_snr_r010"] = float(h.snr_error.mean()[0.1])
+    n["k_hf_best_r010"] = float(h.best_rank_error.mean()[0.1])
+    return n
+
+
+def classify_numbers() -> dict:
+    """V10, and the UCR benchmark, few-shot, irregular and clustering arms."""
+    n: dict = {}
+    v = _csv("classify", "v10_learning_curve.csv")
+    f = v[v.design == "fixed"]
+    r = v[v.design == "random"]
+    n["v10_cells"] = len(f)
+    n["v10_fixed_in"] = int(f.in_band_exact.sum())
+    n["v10_fixed_first_in"] = int(f.in_band_first_order.sum())
+    small = r[r.p_over_mn <= 0.05]
+    n["v10_rand_small_in"] = int(small.in_band_applicable.sum())
+    n["v10_rand_small_n"] = len(small)
+    big = r[r.p_over_mn > 0.2]
+    n["v10_rand_big_in"] = int(big.in_band_applicable.sum())
+    n["v10_rand_big_n"] = len(big)
+    n["v10_rand_uncorr_in"] = int(r.in_band_exact.sum())
+    c = f[(f.D2 == 9) & (f.m == 1)].set_index("p")
+    n["v10_p3_m1"] = float(c.loc[3, "simulated"])
+    n["v10_p31_m1"] = float(c.loc[31, "simulated"])
+    n["v10_ceiling9"] = float(c.ceiling.iloc[0])
+    if not (RES / "classify" / "ucr_benchmark.csv").exists():
+        return n
+    n.update(_ucr_numbers())
+    return n
+
+
+def _ucr_numbers() -> dict:
+    """The UCR arms: pre-declared pairs, best-of rows, few-shot, irregular, clustering."""
+    n: dict = {}
+    b = _csv("classify", "ucr_benchmark.csv")
+    piv = b.pivot_table(index=["group", "dataset"], columns="method", values="error")
+    piv["best_law"] = piv[["law_cosine", "law_nystrom"]].min(axis=1)
+    piv["best_raw"] = piv[[c for c in piv.columns if c.startswith("raw_")]].min(axis=1)
+    n["ucr_n"] = len(piv)
+    for g in ("daily", "shape"):
+        q = piv.loc[g]
+        n[f"ucr_{g}_n"] = len(q)
+        for a, c, key in (("law_cosine", "raw_1nn_ed", "law_vs_1nn"),
+                          ("law_cosine", "raw_centroid", "law_vs_cen"),
+                          ("mech_logistic", "raw_logistic", "mlog"),
+                          ("mech_svm", "raw_svm", "msvm"),
+                          ("best_law", "best_raw", "best")):
+            n[f"ucr_{g}_{key}_wins"] = int((q[a] <= q[c] + 1e-9).sum())
+            n[f"ucr_{g}_{key}_a"] = float(q[a].mean())
+            n[f"ucr_{g}_{key}_b"] = float(q[c].mean())
+        n[f"ucr_{g}_symbolic"] = float(q["law_symbolic"].mean())
+        n[f"ucr_{g}_dtw"] = float(q["published_1nn_dtw"].mean())
+        n[f"ucr_{g}_law_le_dtw"] = int((q.best_law <= q.published_1nn_dtw + 1e-9).sum())
+    for name in ("SyntheticControl", "TwoPatterns", "DodgerLoopGame", "Trace"):
+        r = piv.xs(name, level=1).iloc[0]
+        for col, key in (("law_cosine", "law"), ("raw_1nn_ed", "ed"),
+                         ("published_1nn_dtw", "dtw"), ("best_raw", "raw")):
+            n[f"ucr_{name}_{key}"] = float(r[col])
+    f = _csv("classify", "ucr_fewshot.csv")
+    fm = f.groupby(["group", "m", "method"]).error.mean()
+    for g in ("daily", "shape"):
+        for m in (1, 10):
+            for meth, key in (("law_Lall", "lall"), ("law_L1", "l1"),
+                              ("raw_1nn_ed", "nn"), ("raw_centroid", "cen")):
+                n[f"fs_{g}_m{m}_{key}"] = float(fm.loc[(g, m, meth)])
+    per = f.groupby(["group", "m", "dataset", "method"]).error.mean().unstack()
+    n["fs_l1_beats_cen"] = int((per.law_L1 < per.raw_centroid - 1e-9).sum())
+    n["fs_cells"] = len(per)
+    if (RES / "classify" / "ucr_irregular.csv").exists():
+        r = _csv("classify", "ucr_irregular.csv")
+        rm = r.groupby(["group", "keep", "method"]).error.mean()
+        for g in ("daily", "shape"):
+            for k, kk in ((1.0, "100"), (0.25, "25"), (0.1, "10")):
+                for meth, key in (("law_cosine", "law"), ("raw_1nn_ed", "nn"),
+                                  ("raw_centroid", "cen"),
+                                  ("mech_logistic_solve", "msolve"),
+                                  ("mech_logistic_project", "mproj")):
+                    n[f"irr_{g}_{kk}_{key}"] = float(rm.loc[(g, k, meth)])
+        pr = r[r.keep == 0.1].groupby(["dataset", "method"]).error.mean().unstack()
+        n["irr10_law_wins"] = int((pr.law_cosine <= pr.raw_1nn_ed + 1e-9).sum())
+        n["irr10_n"] = len(pr)
+    if (RES / "classify" / "ucr_clustering.csv").exists():
+        c = _csv("classify", "ucr_clustering.csv")
+        cm = c.groupby(["group", "keep", "method"]).ARI.mean()
+        for g in ("daily", "shape"):
+            for k, kk in ((1.0, "100"), (0.25, "25")):
+                for meth, key in (("mech_kmeans_project", "mproj"),
+                                  ("mech_kmeans_solve", "msolve"),
+                                  ("raw_kmeans", "raw")):
+                    n[f"cl_{g}_{kk}_{key}"] = float(cm.loc[(g, k, meth)])
+            n[f"cl_{g}_100_soft"] = float(cm.loc[(g, 1.0, "soft_em_cosine")])
     return n
 
 

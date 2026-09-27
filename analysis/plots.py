@@ -741,7 +741,8 @@ ALL = {
 #: ``style``/``C`` from here, so they are collected lazily in :func:`all_figures`
 #: rather than imported at the top.
 BLOCK_FIGURES = ("analysis.figs_problems", "analysis.figs_losses",
-                 "analysis.figs_online", "analysis.figs_realdata")
+                 "analysis.figs_online", "analysis.figs_realdata",
+                 "analysis.figs_kernel", "analysis.figs_classify")
 
 
 def all_figures() -> dict:

@@ -1,0 +1,127 @@
+{
+  "ArrowHead": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/ArrowHead.zip",
+    "sha256": "790a51e664c347df1e931ffc63afc93b1e718ff75c146e7a2d5c669e51b037c4",
+    "bytes": 776305
+  },
+  "CBF": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/CBF.zip",
+    "sha256": "63d74cc72c50b75ea82ba1b5cd7445e105679686490c95c339b09458d4317d70",
+    "bytes": 1809251
+  },
+  "Chinatown": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/Chinatown.zip",
+    "sha256": "45430f55d176e989d79c33c62b2f1d96edd9bc9c5433df2340b23ed53dc77538",
+    "bytes": 60643
+  },
+  "Coffee": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/Coffee.zip",
+    "sha256": "bfba9d67f4a0f2041cb8ba88b60b11f10dab60b670e40b904ac47bd7dfdf4749",
+    "bytes": 246676
+  },
+  "DataSummary": {
+    "url": "https://www.cs.ucr.edu/~eamonn/time_series_data_2018/DataSummary.csv",
+    "sha256": "7fe2428588c5d513b88df2c480d71e25e4f113e8ad695e21ee2057dfac53c3ac",
+    "bytes": 11624
+  },
+  "DodgerLoopDay": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/DodgerLoopDay.zip",
+    "sha256": "66edf3a0515a53a454b8e2e4f8fcd1e34c7c474dcc0dc6b79fe8c599f2abe8bc",
+    "bytes": 256809
+  },
+  "DodgerLoopGame": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/DodgerLoopGame.zip",
+    "sha256": "dec3ac6c8b63177c581a32501816388dc3265651f2ee8a8a00ed5f4fb664a9f7",
+    "bytes": 257165
+  },
+  "DodgerLoopWeekend": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/DodgerLoopWeekend.zip",
+    "sha256": "1320e12ee414850383355c14dd1a549927a9822b578a6af4d09396020a084447",
+    "bytes": 256436
+  },
+  "ECG200": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/ECG200.zip",
+    "sha256": "755937ea37849346ea20033666b19d17345bb039971e8fa33458b16b62c09380",
+    "bytes": 298857
+  },
+  "ElectricDevices": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/ElectricDevices.zip",
+    "sha256": "0d63e83f7b49e90c7d0bd4bb20320e2b26719da596e0d96de6581bbeecca58d5",
+    "bytes": 5327513
+  },
+  "FaceFour": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/FaceFour.zip",
+    "sha256": "86311f527d66aab7e6a17d89870787c9a95fb418ae2056cd6d448241ad8536c1",
+    "bytes": 377521
+  },
+  "GunPoint": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/GunPoint.zip",
+    "sha256": "d7513cfe222418fabfdb5a6434ffb21ac3de4923e637971e9388ebc857816803",
+    "bytes": 435433
+  },
+  "ItalyPowerDemand": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/ItalyPowerDemand.zip",
+    "sha256": "4b68635dc79855fbdb7787d5dff5bac978fd0448afaa8eb7811dae52d43e5e46",
+    "bytes": 380040
+  },
+  "Lightning2": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/Lightning2.zip",
+    "sha256": "3335b5d8d2a8145c5fafc5e698b229b0cf1f89d623dd0a28f91e844691ed1198",
+    "bytes": 998005
+  },
+  "Lightning7": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/Lightning7.zip",
+    "sha256": "0a020f77af1e49d46250ca12ff6fe37997fc6cd1c649828e10d0da01299d5591",
+    "bytes": 594704
+  },
+  "MelbournePedestrian": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/MelbournePedestrian.zip",
+    "sha256": "22192f120d3bb663d493d67f7391e9c64c46b91a6de5a7961b74f67590f65b72",
+    "bytes": 1002783
+  },
+  "MoteStrain": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/MoteStrain.zip",
+    "sha256": "6ccfe013529ae2622283e93e087dc24fefb18d6c4a99bf6274a555c298bbe5e1",
+    "bytes": 1590070
+  },
+  "Plane": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/Plane.zip",
+    "sha256": "7689cc0f02e99c9bf50af573bb67db2b516150906bc4ac430223f73763c58101",
+    "bytes": 464763
+  },
+  "PowerCons": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/PowerCons.zip",
+    "sha256": "cd750fb434968606207c2b4e09fe05177c8b6d59d0449b1240bffdac0ffa30d1",
+    "bytes": 220584
+  },
+  "SmallKitchenAppliances": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/SmallKitchenAppliances.zip",
+    "sha256": "6a7dad354a9d8dc5c9d6f1615653186bbeb870460095e2929182ff4470d20d9e",
+    "bytes": 329438
+  },
+  "SonyAIBORobotSurface1": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/SonyAIBORobotSurface1.zip",
+    "sha256": "a1bc219e21c73c875f8eebd6ad46598ac696a32794c98c9c7c802ac093d4523b",
+    "bytes": 331858
+  },
+  "SyntheticControl": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/SyntheticControl.zip",
+    "sha256": "cebfae7548078e1de26292fd3b12222a3f63812e03a88cdf48ff5e7cca3511e5",
+    "bytes": 552537
+  },
+  "Trace": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/Trace.zip",
+    "sha256": "46fdce1d24e8a1b823c8461b2b9f2b2333c01d4eb55af33e6a8bfd04e41c6a0f",
+    "bytes": 795844
+  },
+  "TwoPatterns": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/TwoPatterns.zip",
+    "sha256": "86e59d0d1bfb917335f54c13b5a9632ba8765b8ce3f06ac481de67778516f960",
+    "bytes": 6778727
+  },
+  "Wafer": {
+    "url": "https://www.timeseriesclassification.com/aeon-toolkit/Wafer.zip",
+    "sha256": "06032db83b3f6f3f39ef4b65433061dde9b2593b956caa1ad1ae9ad260a36be4",
+    "bytes": 6895222
+  }
+}

@@ -841,10 +841,194 @@ pd.read_csv(RES / "realdata" / "realdata_online_summary.csv")
 ]
 
 
+# ==========================================================================
+# 06 -- beyond the library: kernels, classification, windows with gaps
+# ==========================================================================
+EXTENSIONS = [
+    ("md", r"""
+# 06 · Kernels, classification, and windows with gaps
+
+The method's claim is about **laws**, not about any one term library, any one
+task or any one sampling grid. This notebook takes each of those away:
+
+1. **A kernel basis instead of the library** -- and the zoo's one failure,
+   `sin 4x` against `sin 4.6x`, comes back.
+2. **Classification instead of clustering** -- a class is a *set* of laws,
+   and the plug-in learning curve is a formula (V10).
+3. **Real data where windows have different designs** -- UCR series sampled
+   irregularly, and I-94 traffic days with sensor gaps, scored at the hours
+   that were observed.
+
+Every live cell runs in seconds; the full results are read from `results/`.
+"""),
+    ("code", SETUP),
+    ("md", r"""
+## 1 · A kernel basis repairs the gap outside the span
+
+`high_frequency` from the problem zoo: two laws the fast library cannot tell
+apart well, because 37% of their *difference* is outside its span. A Nystrom
+basis of an RBF kernel spans a function space instead; its rank is the one
+knob.
+"""),
+    ("code", r'''
+from experiments.problems.zoo import PROBLEMS, make_windows, sigma_for_rho, oracle_labels
+from experiments.kernel.run import gap_outside_basis, _snr
+from lrdsr.core.kernel import NystromBasis
+from lrdsr.core.mechanism_space import mechanism_features, mechanism_init, mechanism_noise
+from lrdsr.core.evaluation import aligned_accuracy
+from sklearn.cluster import KMeans
+
+prob = next(p for p in PROBLEMS if p.name == "high_frequency")
+X, y, z = make_windows(prob, sigma_for_rho(prob, 0.25), 150, 48, seed=11)
+def err(lab):
+    return 1 - aligned_accuracy(z, lab)
+
+
+print(f"oracle            {err(oracle_labels(prob, X, y)):.3f}")
+print(f"library           {err(mechanism_init(X, y, 2, seed=11, feature_names=['x'])):.3f}")
+for r in (4, 8, 12, 16, 24):
+    b = NystromBasis(r).fit(X.reshape(-1, 1))
+    S = mechanism_features(X, y, basis=b)
+    lab = KMeans(2, n_init=30, random_state=11).fit_predict(S)
+    print(f"Nystrom rank {b.rank:2d}  {err(lab):.3f}   gap outside {gap_outside_basis(prob, b):6.1%}"
+          f"   SNR {_snr(S, mechanism_noise(X, y, basis=b)):.2f}")
+'''),
+    ("md", r"""
+The rank is chosen **without labels**: the rank that maximises the spectral
+SNR of mechanism space (excess spread over the noise, per root dimension).
+That rule was picked over per-window leave-one-out on the *tuning* seeds; the
+sweep over every problem is in `results/kernel/`.
+"""),
+    ("code", r'''
+from analysis.figs_kernel import kernel_rank_sweep, kernel_zoo
+kernel_rank_sweep(); kernel_zoo()
+pd.read_csv(RES / "kernel" / "kernel_zoo_summary.csv").set_index("problem").round(3)
+'''),
+    ("md", r"""
+## 2 · Classification: the learning curve is a formula (V10)
+
+With labels, fit the laws per class and send a window to the class whose law
+explains it. With a basis of rank $p$ and $m$ labelled windows per class,
+the plug-in error is
+
+$$P_{err} \approx Q\left(\frac{D^2}{2\sqrt{D^2 + 2p/m}}\right),\qquad D^2 = n\rho,$$
+
+and exactly a three-scalar expectation. **The price is $p/m$**: the basis
+dimension, not the window length.
+"""),
+    ("code", r'''
+from lrdsr.theory.classification import plugin_error, plugin_error_first_order, _simulate, Q
+for p, m in ((3, 1), (15, 2), (31, 8)):
+    sims = [_simulate("fixed", 9.0, p, m, s, n_test=500)[0] for s in range(30)]
+    print(f"p={p:2d} m={m:2d}  simulated {np.mean(sims):.3f}  exact {plugin_error(9.0, p, m):.3f}"
+          f"  first order {plugin_error_first_order(9.0, p, m):.3f}  ceiling {Q(1.5):.3f}")
+from analysis.figs_classify import v10_learning_curve
+v10_learning_curve();
+'''),
+    ("md", r"""
+## 3 · A class is a set of laws
+
+`LawClassifier` fits `L` laws per class with the hard LR-DSR loop inside
+each class. `L = 1` is the linear rule; `L = "all"` makes every training
+series its own law (nearest law). Chinatown: pedestrian counts, weekday or
+weekend, 20 training days.
+"""),
+    ("code", r'''
+from experiments.classify import ucr
+from lrdsr.core.classify import LawClassifier
+from lrdsr.core.kernel import CosineBasis
+
+ds = ucr.load("Chinatown")
+Xtr, ytr = ucr.to_windows(ds.train); Xte, yte = ucr.to_windows(ds.test)
+for L in (1, 2, 4, "all"):
+    clf = LawClassifier(basis=CosineBasis(8), nuisance=None, laws_per_class=L).fit(Xtr, ytr, ds.y_train)
+    print(f"L = {L!s:4} laws {clf.n_laws:3d}  test error {np.mean(clf.predict(Xte, yte) != ds.y_test):.3f}")
+
+clf = LawClassifier(basis=CosineBasis(8), nuisance=None, laws_per_class=2).fit(Xtr, ytr, ds.y_train)
+grid = np.linspace(0, 1, 200)[:, None]
+fig, ax = plt.subplots(figsize=(7, 3))
+for j, c in enumerate(clf.law_class_):
+    ax.plot(grid[:, 0] * 23, clf.design_.B(grid) @ clf.coef_[j], color=viz.regime_color(c),
+            label=f"{('weekend', 'weekday')[c]}, law {j}")
+ax.set(xlabel="hour", ylabel="count", title="Chinatown: two laws per class"); ax.legend(fontsize=8);
+'''),
+    ("md", r"""
+**Irregular sampling.** Keep a random quarter of each series' hours -- a
+different quarter per series. The law classifier scores the kept samples at
+their own times; a profile method has to interpolate first.
+"""),
+    ("code", r'''
+from sklearn.neighbors import KNeighborsClassifier
+for keep in (1.0, 0.5, 0.25):
+    tr = ucr.subsample(ds.train, keep, 11) if keep < 1 else ds.train
+    te = ucr.subsample(ds.test, keep, 12) if keep < 1 else ds.test
+    Xa, ya = ucr.to_windows(tr); Xb, yb = ucr.to_windows(te)
+    law = LawClassifier(basis=CosineBasis(8), nuisance=None, laws_per_class=2).fit(Xa, ya, ds.y_train)
+    nn = KNeighborsClassifier(1).fit(ucr.to_grid(tr, 24), ds.y_train)
+    print(f"keep {keep:4.0%}  law {np.mean(law.predict(Xb, yb) != ds.y_test):.3f}   "
+          f"interpolated 1-NN {np.mean(nn.predict(ucr.to_grid(te, 24)) != ds.y_test):.3f}")
+'''),
+    ("md", r"""
+### The 24-dataset benchmark
+
+Nine daily-cycle datasets (the kind of data this method is for) and fifteen
+shape benchmarks (the contrast). Hyperparameters by CV on the training split,
+test split touched once.
+"""),
+    ("code", r'''
+b = pd.read_csv(RES / "classify" / "ucr_benchmark.csv")
+b.pivot_table(index=["group", "dataset"], columns="method", values="error").round(3)
+'''),
+    ("code", r'''
+from analysis.figs_classify import classify_benchmark, classify_fewshot, classify_irregular
+classify_benchmark(); classify_fewshot(); classify_irregular();
+'''),
+    ("md", r"""
+## 4 · I-94 days with sensor gaps
+
+The first pass at the real data dropped every traffic day with a missing hour
+-- a third of the days. Score each partial day at the hours it has, with its
+level as a nuisance, and compare with imputing the gaps first.
+"""),
+    ("code", r'''
+from experiments.realdata import gaps
+days = gaps.traffic_days()
+part = days[~days.complete]
+print(f"{days.complete.sum()} complete days, {len(part)} partial days with >= {gaps.MIN_HOURS} hours")
+c, lab = gaps._cluster_complete(days, seed=11)
+Xc, yc = gaps.windows(c["hours"], c["count"])
+law = LawClassifier(basis=gaps._fourier(), nuisance="intercept").fit(Xc, yc, lab)
+
+few = part[part.n_hours <= 9].head(3)
+fig, axes = plt.subplots(1, len(few), figsize=(11, 2.8), sharey=True)
+hh = np.arange(24); xg = (2 * np.pi * hh / 24)[:, None]
+for ax, (_, d) in zip(axes, few.iterrows()):
+    Xd, yd = gaps.windows([d.hours], [d["count"]])
+    p = law.predict_proba(Xd, yd)[0]
+    for k in range(2):
+        f = law.design_.B(xg) @ law.coef_[k]
+        off = np.mean(yd[0] - (law.design_.B(Xd[0]) @ law.coef_[k]))
+        ax.plot(hh, f + off, color=viz.regime_color(k), label=f"law {k}: p = {p[k]:.2f}")
+    ax.plot(d.hours, yd[0], "ko", ms=4)
+    ax.set(title=f"{d.date:%Y-%m-%d} ({'working' if d.reference else 'off'}), {d.n_hours} h",
+           xlabel="hour")
+    ax.legend(fontsize=7)
+axes[0].set_ylabel("log(1 + count)"); fig.tight_layout()
+'''),
+    ("code", r'''
+from analysis.figs_realdata import realdata_gaps
+realdata_gaps()
+pd.read_csv(RES / "realdata" / "realdata_gaps_summary.csv").pivot_table(
+    index=["arm", "hours_bin"], columns="route", values="accuracy").round(3)
+'''),
+]
+
+
 NOTEBOOKS: dict[str, list[tuple[str, str]]] = {
     "01_quickstart": QUICKSTART,
     "02_theory_and_losses": THEORY,
     "03_problem_zoo": ZOO,
     "04_realtime_clustering": REALTIME,
     "05_real_data": REALDATA,
+    "06_kernels_and_classification": EXTENSIONS,
 }

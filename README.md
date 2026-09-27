@@ -9,9 +9,10 @@ produced them, however different they look. This project is the method for
 that, and the analysis of when it works.
 
 Almost every law here was written down by us, so almost every answer can be
-checked against the truth rather than argued. The one exception is the
-real-data block, which runs the method on two public datasets and says
-plainly that its reference labels are a calendar proxy, not the truth.
+checked against the truth rather than argued. The exceptions are the
+real-data blocks: two public hourly series, whose reference labels are a
+calendar proxy and are said to be one, and 24 datasets of the UCR
+time-series archive, whose labels are the archive's own.
 
 ```bash
 pip install -e ".[dev]"
@@ -30,7 +31,9 @@ pytest -q
 | `problems` | which *shapes* of problem does it solve? | [the problem zoo](#the-problem-zoo) |
 | `losses` | which loss, when, and can the loss be learned? (V8) | [losses](#which-loss-and-learning-it) |
 | `online` | can it cluster in real time? (V9) | [real time](#clustering-in-real-time) |
-| `realdata` | what does it find in real measurements? | [real data](#real-data) |
+| `realdata` | what does it find in real measurements, including days with gaps? | [real data](#real-data) |
+| `kernel` | does a kernel basis repair a gap outside the library? | [kernels](#a-kernel-basis-instead-of-a-library) |
+| `classify` | a class is a set of laws: theory (V10) and 24 real datasets | [classification](#classification-a-class-is-a-set-of-laws) |
 
 ## The three claims, in order
 
@@ -343,6 +346,214 @@ learned loss picks a Student-t on both: `nu` = 15 on bike (close to
 Gaussian) and 6 on traffic (heavier tails), with the partition
 essentially unchanged.
 
+### Days with sensor gaps: the first real windows with different designs
+
+Everything above keeps a traffic day only if all 24 hours are present,
+because every window then shares one design. That drops a third of the
+days, and on those days the raw-profile baseline that tied the method no
+longer exists: a profile needs its hours. A law does not -- it is scored at
+whichever hours were observed, with the day's level profiled out as a
+nuisance (`experiments/realdata/gaps.py`). There are 616 such days with at
+least 6 observed hours.
+
+Label-free: the 1214 complete days are clustered as before, the two clusters
+become two laws, and each partial day goes to the law that explains its own
+hours. Against the calendar:
+
+| hours observed | days | law at the observed hours | impute hour means, then profile | impute linearly, then profile |
+|---|---|---|---|---|
+| 6-11 | 38 | 1.000 | 0.868 | 0.711 |
+| 12-17 | 203 | 0.966 | 0.980 | 0.921 |
+| all | 616 | 0.976 | 0.971 | 0.943 |
+
+The law wins where the day is most incomplete, and imputation catches up as
+hours return; with 18 or more hours every route agrees. It is not a clean
+sweep: at 12-17 hours, filling each gap with the hour's mean over complete
+days (0.980) edges out the law (0.966), and the 6-11 bin is only
+38 days. So the same question is asked where the answer is known: every
+complete day gets the gap mask of a randomly drawn real gap day, and each
+route is scored by agreement with **its own** full-day decision. At 6-11
+hours (111 masked days over three seeds) the law keeps its decision
+99.1% of the time, hour-mean imputation 88.3% and linear imputation
+78.4%; at 12-17 hours, 99.5%, 96.6% and 94.9%. With the
+calendar as training labels instead of clusters (a classifier, not a
+clustering), the totals are 0.976 for the law and 0.974 for hour-mean
+imputation.
+
+## A kernel basis instead of a library
+
+The problem zoo's one real failure was a gap outside the library: `sin 4x`
+against `sin 4.6x` leaves 37% of the difference outside the span of the
+fast library's terms. `lrdsr/core/kernel.py` supplies bases that span a
+function space instead -- Nystrom features of an RBF kernel, random Fourier
+features, cosine, Legendre and Fourier bases -- as drop-in `basis=` arguments
+for mechanism space, soft EM and the classifier. With a Nystrom basis the
+mechanism-space distance between two windows is the RKHS distance between
+their fitted functions, and `window_kernel` turns it into a kernel between
+windows.
+
+The rank is the one knob, and it trades bias (gap outside the span) against
+variance (every basis direction is a noise direction in mechanism space).
+The rank is chosen **without labels**. Three rules were compared on the
+tuning seeds -- per-window leave-one-out (minimum and one-standard-error)
+and the spectral SNR of mechanism space (excess spread over the noise per
+root dimension) -- and `snr` was kept (mean error 0.076 against
+0.095 for leave-one-out; the rank chosen against the truth, an optimistic
+bound, 0.064). Leave-one-out asks how rich *one* window's law is, and a
+noisy window cannot justify resolving `sin 4x` (on `high_frequency` at
+`rho` = 0.25 it errs at 0.427 against 0.042 for the SNR rule).
+
+On the reporting seeds, gap to the oracle:
+
+| method | `high_frequency` | all 12 problems |
+|---|---|---|
+| soft EM, library | +0.096 | +0.018 |
+| mechanism K-means, library | +0.079 | +0.017 |
+| mechanism K-means, kernel | +0.038 | +0.013 |
+| **soft EM, kernel** | +0.032 | +0.011 |
+| K-means on the raw profile | | +0.130 |
+
+The kernel basis takes the gap outside the span from 37% to
+0.01% at rank 17 and cuts the failure by about half for mechanism
+K-means and two thirds for soft EM, without costing the other problems: soft EM in the kernel basis is better than in the library on
+7 of 12 and worse by more than 0.002 on 2. What is left on
+`high_frequency` is variance, not bias: at `rho` = 0.1 even the best rank
+chosen against the truth errs at 0.153, and the SNR rule, which picks a
+different rank per seed, at 0.229. The price of the kernel is the name:
+the law is a dense RKHS function, not an expression.
+
+## Classification: a class is a set of laws
+
+`lrdsr/core/classify.py` turns the clustering model into a classifier.
+`LawClassifier` fits `L` laws per class with the hard LR-DSR loop inside each
+class, and sends a window to the class whose mixture of laws explains it
+best -- mixture discriminant analysis with laws for components. `L = 1` is
+the linear rule, `L = "all"` makes every training window its own law (nearest
+law). A window is scored at its own inputs, so series of different lengths,
+with gaps or irregular sampling are scored as they are. `MechanismFeatures`
+is mechanism space as a train/test feature map, the *feature domain* for any
+scikit-learn classifier.
+
+**V10: the learning curve is a formula.** With the laws known the error is the
+ceiling `Q(sqrt(n rho)/2)`. Estimated from `m` labelled windows per class in
+a basis of rank `p`, it is the expectation of a closed form over three
+scalars (`lrdsr/theory/classification.py`), and to first order
+
+```
+P_err ~ Q( D^2 / (2 sqrt(D^2 + 2p/m)) ),   D^2 = n rho
+```
+
+**The price is the basis dimension `p`, not the window length `n`.** At a
+fixed design the exact form is within the Monte-Carlo band in
+58/60 cells (the first-order form in only 11: it is optimistic
+at small `m`). At `n rho = 9` and one labelled window per class, the error
+is 0.185 with `p` = 3 and 0.333 with `p` = 31, against a ceiling of
+0.067. At a random design two corrections are needed and
+both were derived, not fitted: a law estimated from `m n` randomly placed
+samples costs `(p + 1)/n` of a window per class (the inverse-Wishart
+factor), and the oracle itself sits above the ceiling by the Jensen gap of
+V1. With both, 28/30 cells with `p/(m n) <= 0.05` are in band; without
+them 18/60. They fail where `p/(m n) > 0.2` (0/9), where the
+inverse-Wishart tail takes over -- at `p` = 31 and `m` = 1 the classifier is
+at chance.
+
+**On 24 real datasets.** `experiments/classify` runs the classifiers on the UCR
+archive's own train/test splits: 9 **daily-cycle** datasets (pedestrian
+counts, power demand, freeway loops, household appliances -- a day or a
+week as a window, the kind of data this method is for) and 15 **shape**
+benchmarks (gestures, ECG, spectra, simulated patterns), the contrast, where
+a class is a pattern with phase jitter rather than a law. The split into
+groups was fixed before any run. Every hyperparameter -- basis size, `L`,
+the level nuisance, regularisation -- is chosen by CV on the training split;
+the test split is touched once. The comparisons that were declared before
+the run, mean test error:
+
+| comparison | daily: wins or ties | daily: mean error | shape: wins or ties | shape: mean error |
+|---|---|---|---|---|
+| law classifier vs raw 1-NN (the archive's reference) | 5/9 | 0.171 vs 0.203 | 11/15 | 0.140 vs 0.158 |
+| law classifier vs raw nearest centroid | 8/9 | 0.171 vs 0.267 | 13/15 | 0.140 vs 0.253 |
+| mechanism features vs raw profile, same logistic regression | 5/9 | 0.173 vs 0.196 | 11/15 | 0.154 vs 0.171 |
+| mechanism features vs raw profile, same RBF SVM | 5/9 | 0.153 vs 0.187 | 10/15 | 0.126 vs 0.136 |
+| best law classifier vs best raw-profile classifier | 1/9 | 0.162 vs 0.137 | 7/15 | 0.130 vs 0.107 |
+
+Three readings, the last one a negative. **The law representation helps a
+fixed decision rule**: the same 1-NN, centroid, logistic regression or SVM
+does better on mechanism coordinates than on the raw profile, on a
+majority of datasets in both groups (a bare one on the daily group, a clear
+one on the shape group) -- the smoothing a basis does is worth more than
+the detail it drops. The largest single gains are on shape data whose
+classes *are* smooth functions: SyntheticControl 0.003 against 0.120
+for raw 1-NN (and 0.017 for the archive's DTW), TwoPatterns
+0.058 against 0.093. **Where a class is a time-warped pattern the
+basis loses** -- Trace 0.260 against 0.010 for DTW -- and elastic methods
+remain the right tool there. **And a generative law classifier does not beat
+the best tuned discriminative classifier on a raw profile** when the training
+set is full: the best law classifier wins on 1/9 daily datasets
+and 7/15 shape ones (both sides are best-of on the test set, so
+optimistic alike). A readable classifier has a price too: one *named* law per
+class from the symbolic library errs at 0.284 on the daily group.
+
+**Few labels: V10 on real data.** With `m` labelled series per class drawn
+from the training split (5 draws x 3 seeds each), the basis size chosen from
+the training series' own leave-one-out fit -- no label, so usable at `m` = 1:
+
+| | daily, `m` = 1 | daily, `m` = 10 | shape, `m` = 1 | shape, `m` = 10 |
+|---|---|---|---|---|
+| nearest law (`L = all`) | 0.395 | 0.240 | 0.396 | 0.208 |
+| raw 1-NN | 0.401 | 0.248 | 0.410 | 0.223 |
+| one law per class (`L = 1`) | 0.395 | 0.290 | 0.396 | 0.304 |
+| raw nearest centroid | 0.401 | 0.305 | 0.410 | 0.308 |
+
+The direction V10 predicts holds on average -- each law rule is below its
+raw counterpart at every `m` -- but the effect on real data is small, a point
+or two, and not uniform: one law per class beats the raw centroid (the same
+rule at dimension `p` instead of `n`) in only 46 of 90 (dataset, `m`)
+cells. Real classes are not isotropic noise around one law, which is what
+the formula assumes.
+
+**Irregular sampling is close to a tie, and that sharpens the sensor-gap
+result.**
+Each series keeps a random share of its samples, a different subset per
+series; the law classifier scores what was kept at its own times, the raw
+rules see the series after linear interpolation. Mean test error:
+
+| share kept | daily: law | daily: interpolate, 1-NN | shape: law | shape: interpolate, 1-NN |
+|---|---|---|---|---|
+| 100% | 0.172 | 0.203 | 0.140 | 0.158 |
+| 25% | 0.335 | 0.356 | 0.240 | 0.222 |
+| 10% | 0.405 | 0.419 | 0.396 | 0.392 |
+
+On the daily group the law is one to three points better on average at every
+share kept, but not systematically -- per dataset it wins about as often as
+it loses -- and on the shape group there is no advantage at all. At 10% the
+law is at or below interpolated 1-NN on 11 of 24 datasets. Scattered samples are exactly what linear
+interpolation handles well -- every gap is short, so the interpolated
+profile is close to the true one. The I-94 gaps above are the opposite
+case, **contiguous** outages of six to eighteen hours, where interpolation
+draws a straight line across the morning peak and the law does not need to
+guess. The method's edge is at long gaps, not at sparse sampling as such.
+
+**Clustering the same data** (train and test pooled, `K` the number of
+classes, ARI against the archive's labels, 3 seeds): mechanism K-means in a
+cosine basis, rank chosen by leave-one-out, against K-means on the raw
+profile.
+
+| | daily, all samples | daily, 25% kept | shape, all samples | shape, 25% kept |
+|---|---|---|---|---|
+| mechanism K-means | 0.302 | 0.232 | 0.326 | 0.187 |
+| K-means on the (interpolated) raw profile | 0.300 | 0.245 | 0.328 | 0.235 |
+| soft EM, cosine basis | 0.209 | | 0.300 | |
+
+With every sample present the two tie, as they must: at a shared design
+mechanism space is a linear change of coordinates of the profile -- the
+same finding as the day windows above, now on 24 datasets. With a quarter
+of the samples kept at random, mechanism K-means is **worse** than
+interpolating first: a projection read off a few scattered samples is
+noisier than the interpolated profile, the clustering analogue of the tie
+in classification. Soft EM in the same basis is below both; a class of a
+UCR dataset is not one Gaussian law in a cosine basis, and a likelihood
+that assumes it is pays for it.
+
 ## Notebooks
 
 Generated from `notebooks/sources.py` and executed by `python notebooks/build.py`,
@@ -355,17 +566,20 @@ so every output in them is one the code produced.
 | `03_problem_zoo` | the twelve problems, why `high_frequency` fails, two-input laws, add your own |
 | `04_realtime_clustering` | a stream with a new regime, a live animation, latency, drift, CUSUM |
 | `05_real_data` | bike sharing and highway traffic, day by day, batch and real time |
+| `06_kernels_and_classification` | the kernel basis live, V10, the law classifier, irregular sampling, days with sensor gaps |
 
 ## Layout
 
 ```text
 lrdsr/core/        the method: model.py (hard loop), soft.py (EM), online.py
-                   (real time), mechanism_space.py, backends.py, losses.py
+                   (real time), mechanism_space.py, backends.py, losses.py,
+                   kernel.py (RKHS and function bases), classify.py
+                   (law classifier, mechanism features)
 lrdsr/theory/      verification.py (the ceiling, V1-V4, V7), losses.py (V8),
-                   sequential.py (V9)
+                   sequential.py (V9), classification.py (V10)
 lrdsr/viz.py       plots for any fit, and a live stream animation
 experiments/       one block per question: theory, estimator, functions,
-                   problems, losses, online, realdata
+                   problems, losses, online, realdata, kernel, classify
 results/<block>/   committed CSVs; every figure and number reads these
 analysis/          plots.py + figs_*.py (every figure), report.py (every number)
 notebooks/         sources.py -> executed .ipynb

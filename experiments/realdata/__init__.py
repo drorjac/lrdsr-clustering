@@ -7,6 +7,8 @@
              reference, used for scoring only
 ``run``      every method on both series, ``K`` chosen without labels, the
              label-free separation, and a real-time pass in calendar order
+``gaps``     the traffic days with sensor gaps, as ragged windows: laws
+             scored at the observed hours against imputation
 
 Writes ``results/realdata/``. The raw archives live in ``.cache/realdata/``
 and are not committed; their sha256 is (``checksums.json``).

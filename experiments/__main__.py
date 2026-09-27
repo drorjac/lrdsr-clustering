@@ -13,7 +13,12 @@
     python -m experiments online      # clustering in real time, and the delay
                                       #   theory of sequential detection (V9)
     python -m experiments realdata    # two real datasets: bike sharing and
-                                      #   highway traffic, day by day
+                                      #   highway traffic, day by day, and the
+                                      #   traffic days with sensor gaps
+    python -m experiments kernel      # mechanism space over an RKHS: the zoo's
+                                      #   one failure, and a label-free rank
+    python -m experiments classify    # classification: the learning curve
+                                      #   (V10) and 24 UCR datasets
     python -m experiments all
 
 Each block writes CSVs to ``results/<block>/``. The figures and every number
@@ -47,7 +52,14 @@ SECTIONS = {
                "streams with regime birth and drift, latency"),
     "realdata": ("experiments.realdata.run",
                  "two public datasets, one window per day: UCI bike sharing and "
-                 "I-94 traffic -- batch, soft, real time, and what K to use"),
+                 "I-94 traffic -- batch, soft, real time, what K to use, and the "
+                 "days with sensor gaps"),
+    "kernel": ("experiments.kernel.run",
+               "mechanism space over an RKHS instead of a term library: does it "
+               "repair the gap outside the span, and a label-free rank rule"),
+    "classify": ("experiments.classify.run",
+                 "classification: the plug-in learning curve of a law classifier "
+                 "(V10), and 24 UCR datasets -- full, few-shot, irregular, clustering"),
 }
 
 

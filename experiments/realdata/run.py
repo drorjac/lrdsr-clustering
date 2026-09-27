@@ -24,6 +24,8 @@ the calendar day type -- a **proxy**, used for scoring only.
 ``disagreements``  every day the law-based partition and the calendar
                     disagree on, by date
 ``learned_loss``    which noise family real residuals pick
+``gaps``            the 616 traffic days with sensor gaps, scored at their
+                    observed hours (``experiments.realdata.gaps``)
 ==================  =======================================================
 
 A fact that shapes every number here: on these series every window has the
@@ -459,6 +461,10 @@ def run(args=None) -> None:
     ll = run_learned_loss(datasets)
     ll.to_csv(RESULTS / "realdata_learned_loss.csv", index=False)
     print(ll.round(3).to_string(index=False))
+
+    print("\n--- the traffic days with sensor gaps ---", flush=True)
+    from experiments.realdata import gaps
+    gaps.run()
     print(f"\n[realdata] {(time.time() - t0) / 60:.1f} min; CSVs -> {RESULTS}")
 
 
