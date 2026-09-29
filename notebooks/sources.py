@@ -1336,8 +1336,8 @@ replaced by "law":
 every library term, keep the one that lowers
 $\mathrm{BIC} = N\log(\mathrm{RSS}/N) + p\log N$ the most; stop when nothing
 lowers it or 5 terms are in. BIC trades fit ($\mathrm{RSS}$) against size ($p$
-coefficients), so the law stays short. The engine is swappable (PySR, PhySO
-are supported); this deterministic one is the default.
+coefficients), so the law stays short. This deterministic engine is the
+default; an open-ended one (PySR) can refine the laws once, after the loop.
 
 ## 2.4 The start: mechanism space
 

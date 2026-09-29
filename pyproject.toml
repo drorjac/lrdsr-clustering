@@ -18,7 +18,7 @@ Repository = "https://github.com/drorjac/lrdsr-clustering"
 # Open-ended symbolic-regression engines, used only by the optional refine
 # step (lrdsr.core.refine) and experiments/openlaws. The default needs neither.
 # PySR is pinned below 2 because 2.x needs sympy >= 1.14.
-engines = ["pysr>=0.18,<2", "physo>=1.0"]
+engines = ["pysr>=0.18,<2"]
 dev = ["pytest>=7.4", "ruff>=0.4", "nbformat", "nbclient", "nbconvert", "ipykernel"]
 
 [tool.setuptools.packages.find]

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import contextmanager as contextlib_contextmanager
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -606,219 +605,21 @@ class DSORegressor(SymbolicRegressorBase):
             return 1.0
 
 
-class _PhySOFitTimeout(BaseException):
-    """Raised by PhySORegressor's wall-clock guard.
-
-    Deliberately a BaseException so it is not caught by physo's internal
-    `except Exception` handlers around program execution.
-    """
-
-
-class PhySORegressor(SymbolicRegressorBase):
-    """Thin adapter for PhySO (Physical Symbolic Optimization).
-
-    https://github.com/wassimtenachi/physo -- reinforcement-learning symbolic
-    regression with optional dimensional-analysis constraints. A third search
-    paradigm alongside ``fast`` (greedy BIC) and ``pysr`` (genetic programming),
-    used for **SR-engine sensitivity checks**, not as a default: it is slow
-    (every DCSR iteration refits every cluster) and stochastic, so run it on a
-    handful of bounded configurations, not the full sweep, and over several
-    seeds.
-
-    Defaults are conservative and fully overridable through ``backend_kwargs``
-    (``run_config``, ``op_names``, ``epochs``, ``X_units``, ``y_units``, ...).
-    The wrapper does not pin PhySO internals because the API evolves between
-    releases; anything in ``physo_kwargs`` is forwarded verbatim to ``physo.SR``.
-    """
-
-    def __init__(self, feature_names: list[str] | None = None, **physo_kwargs):
-        try:
-            import physo  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "PhySO is not installed. Install it (pip install physo, which "
-                "pulls in PyTorch) and rerun with backend='physo'."
-            ) from exc
-        try:
-            import torch  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "PhySO requires PyTorch. Install torch and rerun with "
-                "backend='physo'."
-            ) from exc
-        self.feature_names = feature_names
-        # Small, bounded search so this stays usable inside the alternating loop.
-        # ``free_consts_names`` matters: without free constants PhySO cannot
-        # represent a scaled law (a*x^2 + b), so the dimensionless SR needs a
-        # handful declared. Everything here is overridable via backend_kwargs.
-        #
-        # NOTE on the monitors: physo.SR treats ``get_run_logger=None`` /
-        # ``get_run_visualiser=None`` as "install the DEFAULTS", not as "off"
-        # (see physo.SR, `if get_run_logger is None: get_run_logger = ...`).
-        # The defaults write SR.log and re-render a ~1.5 MB SR_curves.png every
-        # single epoch, which cost ~16% of fit time and littered the repo root.
-        # Passing explicitly inert monitors is the only way to switch them off.
-        self._opts = {
-            "op_names": ["add", "sub", "mul", "div", "n2", "sqrt", "sin", "cos"],
-            "free_consts_names": ["a", "b", "c"],
-            "epochs": 20,
-            # parallel_mode: physo defaults this to True. It is forced off here
-            # because physo's parallelism re-executes the importing module in
-            # each spawned worker; without a __main__ guard that re-runs the
-            # caller. Left as a measured open question, not a settled verdict.
-            "parallel_mode": False,
-            "get_run_logger": self._quiet_logger,
-            "get_run_visualiser": self._quiet_visualiser,
-        }
-        self._opts.update(physo_kwargs)
-        self._verbose = bool(self._opts.pop("verbose", False))
-        # Hard wall-clock guard on a single fit. Some in-loop fits have stalled
-        # for hours with no epoch progress and no traceback; the cause is not
-        # understood, so this bounds the damage to one skipped fit rather than
-        # a long run. None disables it.
-        self._fit_timeout_s = self._opts.pop("fit_timeout_s", None)
-        self._program = None
-        self._expr = "physo (unfitted)"
-
-    @staticmethod
-    def _quiet_logger():
-        from physo.learn import monitoring
-        return monitoring.RunLogger(save_path=None, do_save=False)
-
-    @staticmethod
-    def _quiet_visualiser():
-        from physo.learn import monitoring
-        return monitoring.RunVisualiser(
-            epoch_refresh_rate=10**9, save_path=None,
-            do_show=False, do_prints=False, do_save=False)
-
-    @staticmethod
-    @contextlib_contextmanager
-    def _time_limit(seconds):
-        """SIGALRM wall-clock cap on the wrapped block.
-
-        Only armed on the main thread of a POSIX process -- signal.alarm is
-        unavailable elsewhere, and there the block simply runs unguarded.
-        """
-        import signal
-        import threading
-
-        armed = (seconds and hasattr(signal, "SIGALRM")
-                 and threading.current_thread() is threading.main_thread())
-        if not armed:
-            yield
-            return
-
-        def _raise(signum, frame):
-            # BaseException, NOT TimeoutError: physo wraps program execution in
-            # broad `except Exception` handlers, which silently swallow an
-            # ordinary timeout and let the fit run on (measured: a 5 s cap on a
-            # 135 s fit had no effect). A BaseException escapes those handlers.
-            raise _PhySOFitTimeout(f"PhySO fit exceeded {seconds}s")
-
-        previous = signal.signal(signal.SIGALRM, _raise)
-        # REPEATING timer, not a one-shot alarm. physo executes each candidate
-        # program inside a bare `except:` (physym/batch_execute.py:123,229),
-        # which swallows even a BaseException -- a single alarm is absorbed and
-        # the fit runs on regardless. Re-firing every second means the raise
-        # eventually lands outside one of those blocks and propagates.
-        signal.setitimer(signal.ITIMER_REAL, float(seconds), 1.0)
-        try:
-            yield
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0.0, 0.0)
-            signal.signal(signal.SIGALRM, previous)
-
-    def fit(self, X: np.ndarray, y: np.ndarray):
-        import contextlib
-        import io
-
-        import physo
-        import torch
-
-        X = np.asarray(X, dtype=float)
-        if X.ndim == 1:
-            X = X[:, None]
-        y = np.asarray(y, dtype=float).reshape(-1)
-        names = self.feature_names or [f"x{j}" for j in range(X.shape[1])]
-
-        opts = dict(self._opts)
-        opts.setdefault("X_names", list(names))
-        opts.setdefault("y_name", "y")
-        # physo.SR expects (n_dim, n_samples) tensors.
-        Xt = torch.tensor(X.T)
-        yt = torch.tensor(y)
-        sink = io.StringIO()
-        cm = contextlib.nullcontext() if self._verbose else contextlib.redirect_stdout(sink)
-        with cm, self._time_limit(self._fit_timeout_s):
-            result = physo.SR(Xt, yt, **opts)
-        # physo.SR returns (best_expression, logs) across known versions.
-        self._program = result[0] if isinstance(result, (tuple, list)) else result
-
-        for getter in ("get_infix_sympy", "get_infix_str", "get_infix_pretty", "__str__"):
-            try:
-                val = getattr(self._program, getter)()
-                if val is not None:
-                    self._expr = str(val)
-                    break
-            except Exception:
-                continue
-        return self
-
-    def _execute(self, X: np.ndarray) -> np.ndarray:
-        import torch
-
-        X = np.asarray(X, dtype=float)
-        if X.ndim == 1:
-            X = X[:, None]
-        Xt = torch.tensor(X.T)
-        out = self._program.execute(Xt)
-        arr = out.detach().cpu().numpy() if hasattr(out, "detach") else np.asarray(out)
-        return np.asarray(arr, dtype=float).reshape(-1)
-
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        if self._program is None:
-            raise RuntimeError("PhySORegressor is not fitted")
-        # PhySO programs carry their own optimised free constants; execute() is
-        # the only reliable evaluator (the infix string names constants a/b/c,
-        # so a sympy lambdify cannot stand in for it).
-        return np.nan_to_num(self._execute(X), nan=0.0, posinf=0.0, neginf=0.0)
-
-    def expression(self) -> str:
-        return self._expr
-
-    def complexity(self) -> float:
-        for attr in ("size", "n_complexity", "complexity"):
-            try:
-                v = getattr(self._program, attr)
-                return float(v() if callable(v) else v)
-            except Exception:
-                continue
-        try:
-            return float(len(self._program.tokens))
-        except Exception:
-            pass
-        try:
-            import sympy
-
-            return float(sympy.count_ops(sympy.sympify(self._expr)) + 1)
-        except Exception:
-            return 1.0
-
-
 def make_symbolic_regressor(
     backend: str = "fast",
     feature_names: list[str] | None = None,
     **kwargs,
 ) -> SymbolicRegressorBase:
-    """Build a regressor by name: ``fast`` (default), ``pysr`` or ``physo``.
+    """Build a regressor by name: ``fast`` (default), ``fast_sin``, ``pysr`` or ``dso``.
 
     ``fast`` is a deterministic library search — a fixed basis, fitted by
     least squares with a complexity penalty. It is the default everywhere and
     **every committed result in this project uses it**, because a genetic
     search that returns a different expression each run cannot support a
-    claim that a particular law was recovered. The other two backends exist
-    for sensitivity checks, and are optional dependencies.
+    claim that a particular law was recovered. ``fast_sin`` adds terms with
+    a fitted frequency (trial). ``pysr`` is the open-ended engine of the
+    optional refine step (``lrdsr.core.refine``); ``dso`` is an unused adapter.
+    Both are optional dependencies.
     """
     backend = backend.lower()
     if backend == "fast":
@@ -827,8 +628,6 @@ def make_symbolic_regressor(
         return SinusoidSymbolicRegressor(feature_names=feature_names, **kwargs)
     if backend == "pysr":
         return PySRRegressor(feature_names=feature_names, **kwargs)
-    if backend == "physo":
-        return PhySORegressor(feature_names=feature_names, **kwargs)
     if backend == "dso":
         return DSORegressor(**kwargs)
     raise ValueError(f"Unknown symbolic backend: {backend}")

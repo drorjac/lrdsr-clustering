@@ -24,7 +24,7 @@ def test_backend_factory():
         make_symbolic_regressor("nope")
     # Optional SR engines are recognised names: absent installs raise ImportError,
     # not the "unknown backend" ValueError.
-    for name in ("pysr", "physo", "dso"):
+    for name in ("pysr", "dso"):
         try:
             make_symbolic_regressor(name)
         except ImportError:

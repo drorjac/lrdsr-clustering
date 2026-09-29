@@ -75,3 +75,40 @@ Regenerate it with `python docs/algorithm/make_glance.py`. The diagrams below gi
 - **5 · refine (optional):** once, after the loop, a deeper search per group, kept only where it lowers the cost.
 
 Only block 1's vocabulary changes between the law engines. The objective and the loop stay the same. PySR is too slow to run inside the loop, so it runs once in block 5, where the keep-only-if-better rule keeps it on the same objective.
+
+## Why the refine step uses PySR, and not PhySO
+
+Block 5 needs an **open-ended** symbolic-regression engine: one that builds
+formulas from operators, rather than choosing from a list. Two established
+packages do this:
+
+| | **PySR** (chosen) | **PhySO** (tried, not adopted) |
+|---|---|---|
+| how it searches | genetic programming (Julia) | reinforcement learning: a neural network writes formulas (PyTorch) |
+| particular strength | fast, clean formulas | can enforce physical units; "class SR" for one form with per-dataset constants |
+
+**The trial.** This was a quick lab check (tuning seed 3), not a formal experiment.
+- Setup: each engine got 800 noisy samples of one law, from the true group (no clustering).
+- Laws: four that no fixed library can write.
+- Budgets: PySR used 40 iterations; PhySO used 10 epochs, about 15 s each on 8 CPU cores.
+
+| law | PhySO: distance to truth, time | PySR: distance to truth, time, formula |
+|---|---|---|
+| sin(0.8x²) | 0.005, 169 s | 0.003, 42 s, `sin(0.8005x²)` |
+| 1/(1+x²) | 0.002, 194 s | 0.000, 28 s, `1.0005/(x² + 1.00006)` |
+| x·sin 4x | 0.424, 270 s (**not found**) | 0.002, 22 s, `x·sin(3.999x)` |
+| e^(−0.4x)·sin 3x | 0.372, 211 s (**not found**) | 0.064, 31 s (a close look-alike) |
+| **total** | **2 of 4 found, 844 s** | **4 of 4 found, 123 s** |
+
+Distance to truth is RMS(found − true) / RMS(true); 0 is exact, and below 0.1 counts as found.
+
+**The reasoning.**
+- **Accuracy:** PySR found every law, three of them in their own symbols. PhySO found two, and wrote even those as convoluted expressions.
+- **Time:** PySR was about 7× faster. Block 5 runs once per group, so time matters.
+- **PhySO's real advantage, physical units, does not apply here.** These laws, like most of the project's problems, have no units.
+- **Fairness:** a larger epoch budget would help PhySO, but it would widen the time gap it already loses.
+
+So PySR is the engine, and the PhySO adapter was removed from the code.
+PhySO is worth revisiting only for data with real physical units (for
+example wind speed → power), through a new adapter.
+

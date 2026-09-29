@@ -197,7 +197,7 @@ def block1():
          "a group's law may be a weighted mix of two other groups' laws (tested only for rare composites)"),
         ("option", "other bases (soft EM / online / classifier)",
          "Fourier, cosine, Legendre, Nyström RBF, random Fourier: flexible, dense coefficients, no term selection"),
-        ("parked", "\"pysr\", \"physo\", \"dso\"  INSIDE the loop",
+        ("parked", "\"pysr\", \"dso\"  INSIDE the loop",
          "builds formulas from operators, fits constants inside;  minutes per fit × every round, group, fold\n"
          "→ hours: not used here.  PySR runs instead ONCE per group in the optional block 5 (diagram 07)"),
     ]
