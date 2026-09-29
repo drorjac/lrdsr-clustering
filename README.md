@@ -9,6 +9,12 @@ produced them, however different they look. This project is the method for
 that, and the analysis of when it works. **[RESULTS.md](RESULTS.md) is the
 scorecard**: fifteen missions, a verdict and the figure for each.
 
+**New here?** Read [the idea in one picture](docs/algorithm/00_the_idea.png)
+and [what a law is built from](docs/algorithm/00_vocabulary.png), then open
+`notebooks/00_summary.ipynb` (the project end to end) and
+`notebooks/09_algorithm_tutorial.ipynb` (every block built by hand). A written
+guide is in [docs/lrdsr_algorithm.pdf](docs/lrdsr_algorithm.pdf).
+
 Almost every law here was written down by us, so almost every answer can be
 checked against the truth rather than argued. The exceptions are the
 real-data blocks: two public hourly series, whose reference labels are a
@@ -751,10 +757,12 @@ lrdsr/theory/      verification.py (the ceiling, V1-V4, V7), losses.py (V8),
                    sequential.py (V9), classification.py (V10), partial.py (V11)
 lrdsr/viz.py       plots for any fit, and a live stream animation
 experiments/       one block per question: theory, estimator, functions,
-                   problems, losses, online, realdata, kernel, classify, wind
+                   problems, losses, online, realdata, kernel, classify, wind,
+                   srbaseline, robustness, openlaws
 results/<block>/   committed CSVs; every figure and number reads these
 analysis/          plots.py + figs_*.py (every figure), report.py (every number)
 notebooks/         sources.py -> executed .ipynb
+docs/              the algorithm guide (PDF) and diagrams (docs/algorithm/)
 tests/             the properties the method has to keep
 ```
 
@@ -771,3 +779,19 @@ tests/             the properties the method has to keep
 - Negative results are results. The loop not beating its initialiser, the
   complexity penalty doing nothing, and the fixed point not being the oracle
   are all above, not in a footnote.
+
+## Data
+
+The real data are public and are downloaded on first use (not committed);
+every archive's sha256 is checked on each load.
+
+- **Capital Bikeshare**: UCI Bike Sharing Dataset (Fanaee-T & Gama, 2013), CC BY 4.0.
+- **I-94 traffic**: UCI Metro Interstate Traffic Volume (Hogue, 2019), CC BY 4.0.
+- **UCR archive**: the UCR Time Series Classification Archive (Dau et al., 2018), via timeseriesclassification.com.
+- **Kelmarsh wind farm**: SCADA data, Plumley (2022), Zenodo, doi:10.5281/zenodo.5841834, CC BY 4.0.
+
+## License, citing, contributing
+
+- **License:** MIT (see `LICENSE`). The code and results are provided as is.
+- **Citing:** use `CITATION.cff` (GitHub's "Cite this repository" button).
+- **Contributing:** issues and pull requests are welcome; see `CONTRIBUTING.md` for the house rules that keep every number checkable.

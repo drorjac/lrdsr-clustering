@@ -31,7 +31,7 @@ F3    **multi-class with the two hard pairs explicit.** A base law, a
       Knob: the rescaling factor.
 ====  =====================================================================
 
-Carried back from the tag ``exploration-archive`` and brought up to the
+Carried over from an earlier, unpublished exploration and brought up to the
 project's current protocol: reporting seeds {11, 23, 42} (the archived run
 used the tuning seeds), mechanism-space initialisation, and a
 mechanism-space K-means arm so the scenarios speak to \\S3 as well.

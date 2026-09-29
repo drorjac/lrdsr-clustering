@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software or its results, please cite it as below."
+title: "LR-DSR: latent-regime clustering by symbolic law"
+abstract: >-
+  Each window of data came from one of K unknown closed-form laws; LR-DSR
+  recovers which law produced each window and writes each law as a formula,
+  by alternating a symbolic fit per regime with a reassignment of every
+  window, started in a space of law coefficients. With the theory of the
+  best possible error, a problem zoo, real data, and a tutorial.
+authors:
+  - family-names: Jacoby
+    given-names: Dror
+    affiliation: Tel Aviv University
+type: software
+license: MIT
+repository-code: "https://github.com/drorjac/lrdsr-clustering"
+date-released: 2026-09-29
+keywords:
+  - symbolic regression
+  - clustering
+  - latent regimes
+  - mixture of regressions
+  - time series

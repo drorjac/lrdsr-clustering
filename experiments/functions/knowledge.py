@@ -31,10 +31,9 @@ Baselines at every cell: the best of seven geometric clusterings, and (for
 $n > 1$) $K$-means in mechanism space, which declares nothing but a library.
 
 Two heavier search paradigms -- PySR (genetic programming) and PhySO
-(reinforcement learning) -- were run against this same battery in the
-exploratory tree and are preserved at the tag ``exploration-archive``
-(``results/nightrun7/K/known_vs_unknown.csv``). Neither beat the
-deterministic backend here, and both cost hours, so they are not re-run.
+(reinforcement learning) -- were run against this same battery in an
+earlier, unpublished exploration. Neither beat the deterministic backend
+there, and both cost hours, so they are not re-run here.
 
 Writes ``results/functions/``. Seeds {11, 23, 42}.
 """

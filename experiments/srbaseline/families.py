@@ -46,7 +46,14 @@ from experiments.common.fitting import fit_lrdsr, window_features
 from experiments.problems import zoo
 from experiments.problems.zoo import Problem, _u, _x
 from experiments.srbaseline.run import (
-    GRID_N, N_WINDOWS, REPORT_SEEDS, RESULTS, WINDOW_LEN, _curves, _law_error, _sr,
+    GRID_N,
+    N_WINDOWS,
+    REPORT_SEEDS,
+    RESULTS,
+    WINDOW_LEN,
+    _curves,
+    _law_error,
+    _sr,
 )
 from lrdsr.core.backends import FastSymbolicRegressor
 from lrdsr.core.evaluation import aligned_accuracy
@@ -203,7 +210,7 @@ def run() -> pd.DataFrame:
         print(f"\nfamilies by problem, {what}\n{t.round(3).to_string()}")
     g = df.groupby(["suite", "problem", "rho"])
     for other in TAGS[3:-1]:
-        m = g[[f"lrdsr_error", f"{other}_error"]].mean()
+        m = g[["lrdsr_error", f"{other}_error"]].mean()
         w = (m.lrdsr_error <= m[f"{other}_error"] + 1e-12).groupby(level=0).agg(["sum", "size"])
         print(f"lrdsr <= {other:14s} assignment cells:",
               {s: f"{r['sum']}/{r['size']}" for s, r in w.iterrows()})

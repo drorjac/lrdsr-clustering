@@ -675,7 +675,7 @@ class PhySORegressor(SymbolicRegressorBase):
         # Hard wall-clock guard on a single fit. Some in-loop fits have stalled
         # for hours with no epoch progress and no traceback; the cause is not
         # understood, so this bounds the damage to one skipped fit rather than
-        # an overnight run. None disables it.
+        # a long run. None disables it.
         self._fit_timeout_s = self._opts.pop("fit_timeout_s", None)
         self._program = None
         self._expr = "physo (unfitted)"
