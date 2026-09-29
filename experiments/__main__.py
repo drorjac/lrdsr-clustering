@@ -21,6 +21,10 @@
                                       #   (V10) and 24 UCR datasets
     python -m experiments wind        # wind power curves, every window its
                                       #   own design (Kelmarsh SCADA)
+    python -m experiments robustness  # noise correlated in time: what the
+                                      #   independence assumption costs
+    python -m experiments openlaws    # laws outside every library: PySR once
+                                      #   per final regime (needs PySR)
     python -m experiments all
 
 Each block writes CSVs to ``results/<block>/``. The figures and every number
@@ -65,6 +69,12 @@ SECTIONS = {
     "wind": ("experiments.wind.run",
              "wind power curves: six-hour turbine blocks, each with its own wind "
              "speeds, against the method of bins and physical proxies"),
+    "robustness": ("experiments.robustness.run",
+                   "noise correlated in time (AR(1)) on the zoo: what assuming "
+                   "independent samples costs, against the OLS and GLS oracles"),
+    "openlaws": ("experiments.openlaws.run",
+                 "laws outside every library: the fast loop finds the regimes, "
+                 "open-ended SR (PySR) finds each regime's law once at the end"),
 }
 
 

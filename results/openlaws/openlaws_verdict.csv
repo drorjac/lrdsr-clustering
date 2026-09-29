@@ -1,0 +1,5 @@
+prediction,claim,value,held
+O1,"library laws are look-alikes: law error >= 0.2 (chirp, am_sine, rho = 1)",0.5133211738182267,True
+O2,PySR finds the law (< 0.1) in >= 75% of cases at rho = 1,0.5833333333333334,False
+O3,... and in >= 50% at rho = 0.25,0.4583333333333333,False
+O4,"block 5: never worse by > 0.005, better where fast_sin was > 0.05 off",0.002222222222222195,True

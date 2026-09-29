@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager as contextlib_contextmanager
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
@@ -179,6 +180,173 @@ class FastSymbolicRegressor(SymbolicRegressorBase):
 
     def complexity(self) -> float:
         return float(1 + len(self.chosen_))
+
+
+class SinusoidSymbolicRegressor(FastSymbolicRegressor):
+    """The fast library plus two term types whose frequency is FITTED.
+
+    The fixed library has ``sin x``, ``cos x`` and ``sin 2x`` and nothing
+    faster, so a law like ``sin(4.6 x)`` can only come back as a surrogate.
+    Here each greedy round also offers, per input ``x_j``,
+
+        b sin(a x_j)     and     b cos(a x_j)
+
+    -- separate terms, as ``sin x`` and ``cos x`` are in the library; a phase
+    is both at one frequency. The frequency ``a`` is chosen by variable
+    projection: for every ``a`` on ``freq_grid`` the coefficient is least
+    squares (vectorised over the grid through the current design's QR), the
+    best grid point is refined by a bounded scalar search, and BIC charges
+    the term two parameters, its coefficient and ``a``. It competes with the
+    fixed terms on the same BIC, so it is chosen only when it explains the
+    data better than they do.
+
+    Three safeguards keep the term honest, each put there by a failure seen
+    while building it:
+
+    * a sinusoid must complete at least one period over the observed range
+      of ``x_j`` (``a >= 2 pi / range``): a slower one is locally a
+      polynomial, which the library already has;
+    * a sinusoid is not offered when 80% of it is already explained by the
+      terms chosen so far (variance inflation above 5): ``cos(1.05 x)`` with a
+      large coefficient cancels against ``cos x`` into a parabola, which fits
+      and explains nothing;
+    * after the forward search a backward pass drops any term whose removal
+      lowers BIC, and the plain library search is run too, the lower-BIC law
+      being kept: greedy search can grab a slow cosine first because it
+      imitates ``x^2``, and the sinusoid has to beat the library on the
+      library's own terms.
+
+    Only the per-cluster fit changes -- the problem, the objective and the
+    loop are the ones :class:`GroupedDCSR` always runs. Not the default: every
+    committed result uses the fixed library.
+    """
+
+    #: The largest share of a new sinusoid the chosen terms may already explain.
+    MAX_EXPLAINED = 0.8
+    _TRIG: ClassVar[dict] = {"sin": np.sin, "cos": np.cos}
+
+    def __init__(self, freq_grid=None, **kwargs):
+        super().__init__(**kwargs)
+        self.freq_grid = (np.arange(0.5, 8.0001, 0.05) if freq_grid is None
+                          else np.asarray(freq_grid, dtype=float))
+
+    def _columns(self, X: np.ndarray, terms) -> list[np.ndarray]:
+        lib = self._make_library(X) if any(t[0] == "lib" for t in terms) else None
+        return [lib[t[1]].values if t[0] == "lib" else self._TRIG[t[0]](t[2] * X[:, t[1]])
+                for t in terms]
+
+    @staticmethod
+    def _n_par(n_columns: int, terms) -> int:
+        """Coefficients plus one per fitted frequency."""
+        return n_columns + sum(t[0] != "lib" for t in terms)
+
+    @classmethod
+    def _rss_add(cls, Q, r, V):
+        """RSS after adding each column of ``V`` to a design with orthonormal
+        basis ``Q`` and residual ``r``; ``inf`` where the column is too
+        collinear with that design."""
+        v0 = (V * V).sum(0)
+        V = V - Q @ (Q.T @ V)
+        vv = (V * V).sum(0)
+        rss = float(r @ r) - (V.T @ r) ** 2 / np.maximum(vv, 1e-12)
+        return np.where(vv >= (1.0 - cls.MAX_EXPLAINED) * v0, rss, np.inf)
+
+    def fit(self, X: np.ndarray, y: np.ndarray):
+        from scipy.optimize import minimize_scalar
+
+        X = np.asarray(X, dtype=float)
+        if X.ndim == 1:
+            X = X[:, None]
+        y = np.asarray(y, dtype=float).reshape(-1)
+        n = len(y)
+        lib = self._make_library(X)
+        names = self.feature_names or [f"x{j}" for j in range(X.shape[1])]
+        step = float(np.min(np.diff(self.freq_grid))) if len(self.freq_grid) > 1 else 0.1
+
+        def bic_rss(rss, n_par):
+            return n * np.log(max(rss, 1e-12) / n) + n_par * np.log(n)
+
+        chosen: list[tuple] = []
+        best_bic = self._bic(y, np.full(n, y.mean()), 1)
+        while len(chosen) < self.max_terms:
+            Phi = np.column_stack([np.ones(n), *self._columns(X, chosen)])
+            n_par = self._n_par(Phi.shape[1], chosen)
+            Q, _ = np.linalg.qr(Phi)
+            r = y - Q @ (Q.T @ y)
+            cand, cand_bic = None, best_bic - self.min_bic_improvement
+            free = [i for i in range(len(lib)) if ("lib", i) not in chosen]
+            if free:
+                rss = self._rss_add(Q, r, np.column_stack([lib[i].values for i in free]))
+                k = int(np.argmin(rss))
+                if np.isfinite(rss[k]) and bic_rss(rss[k], n_par + 1) < cand_bic:
+                    cand, cand_bic = ("lib", free[k]), bic_rss(rss[k], n_par + 1)
+            for j in range(X.shape[1]):
+                span = float(np.ptp(X[:, j]))
+                if span <= 0:
+                    continue
+                lowest = 2.0 * np.pi / span
+                grid = self.freq_grid[self.freq_grid >= lowest]
+                if grid.size == 0:
+                    continue
+                A = np.outer(X[:, j], grid)
+                for kind, fn in self._TRIG.items():
+                    rss = self._rss_add(Q, r, fn(A))
+                    if not np.isfinite(rss).any():
+                        continue
+                    a0 = float(grid[int(np.argmin(rss))])
+
+                    def one(a, j=j, fn=fn, Q=Q, r=r):
+                        return min(float(self._rss_add(Q, r, fn(a * X[:, j])[:, None])[0]), 1e300)
+
+                    res = minimize_scalar(one, bounds=(max(a0 - step, lowest), a0 + step),
+                                          method="bounded")
+                    a, rss_a = ((float(res.x), float(res.fun)) if res.fun <= rss.min()
+                                else (a0, float(rss.min())))
+                    if bic_rss(rss_a, n_par + 2) < cand_bic:
+                        cand, cand_bic = (kind, j, a), bic_rss(rss_a, n_par + 2)
+            if cand is None:
+                break
+            chosen.append(cand)
+            best_bic = cand_bic
+
+        def bic_of(terms):
+            P = np.column_stack([np.ones(n), *self._columns(X, terms)])
+            c, *_ = np.linalg.lstsq(P, y, rcond=None)
+            return self._bic(y, P @ c, self._n_par(P.shape[1], terms))
+
+        # backward: drop any term whose removal lowers BIC, until none does
+        while chosen:
+            current = bic_of(chosen)
+            b, i = min((bic_of(chosen[:i] + chosen[i + 1:]), i) for i in range(len(chosen)))
+            if b >= current - self.min_bic_improvement:
+                break
+            chosen = chosen[:i] + chosen[i + 1:]
+
+        # the sinusoids must beat the plain library on its own terms
+        plain = FastSymbolicRegressor(
+            max_terms=self.max_terms, include_trig=self.include_trig,
+            include_log=self.include_log, include_interactions=self.include_interactions,
+            min_bic_improvement=self.min_bic_improvement).fit(X, y)
+        if plain.bic_ < bic_of(chosen) - self.min_bic_improvement:
+            chosen = [("lib", c) for c in plain.chosen_]
+
+        self.terms_ = chosen
+        Phi = np.column_stack([np.ones(n), *self._columns(X, chosen)])
+        self.coef_, *_ = np.linalg.lstsq(Phi, y, rcond=None)
+        self.term_names_ = [lib[t[1]].name if t[0] == "lib" else f"{t[0]}({t[2]:.4g}*{names[t[1]]})"
+                            for t in chosen]
+        self.chosen_ = [t[1] for t in chosen if t[0] == "lib"]
+        self.bic_ = self._bic(y, Phi @ self.coef_, self._n_par(Phi.shape[1], chosen))
+        return self
+
+    def _design(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X, dtype=float)
+        if X.ndim == 1:
+            X = X[:, None]
+        return np.column_stack([np.ones(len(X)), *self._columns(X, self.terms_)])
+
+    def complexity(self) -> float:
+        return float(self._n_par(1 + len(self.terms_), self.terms_))
 
 
 class PySRRegressor(SymbolicRegressorBase):
@@ -655,6 +823,8 @@ def make_symbolic_regressor(
     backend = backend.lower()
     if backend == "fast":
         return FastSymbolicRegressor(feature_names=feature_names, **kwargs)
+    if backend == "fast_sin":
+        return SinusoidSymbolicRegressor(feature_names=feature_names, **kwargs)
     if backend == "pysr":
         return PySRRegressor(feature_names=feature_names, **kwargs)
     if backend == "physo":

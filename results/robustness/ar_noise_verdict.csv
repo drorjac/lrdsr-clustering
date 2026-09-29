@@ -1,0 +1,7 @@
+prediction,claim,value,held
+R1,phi = 0: GLS oracle = OLS oracle,0.0,True
+R2,"theory within 0.02 of both oracles, two-law cells",0.050972396887249055,False
+R2b,"(added after the run) theory within 3 SE, 4000 windows",1.0,True
+R3,lrdsr gap to OLS oracle < 0.05 at every phi <= 0.8,0.08432098765432099,False
+R4,"GLS gain grows with phi, largest on fast-varying gaps",0.040444444444444436,True
+R5,real residual lag-1 autocorrelation > 0.5 on both datasets,0.34527301438556873,False

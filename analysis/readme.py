@@ -15,7 +15,8 @@ the law each window came from.**
 Not "cluster the windows and describe the clusters" -- the law *is* the
 cluster identity, and two windows are similar when the same equation
 produced them, however different they look. This project is the method for
-that, and the analysis of when it works.
+that, and the analysis of when it works. **[RESULTS.md](RESULTS.md) is the
+scorecard**: fifteen missions, a verdict and the figure for each.
 
 Almost every law here was written down by us, so almost every answer can be
 checked against the truth rather than argued. The exceptions are the
@@ -28,7 +29,7 @@ scored against physical proxies because it has no operator labels.
 pip install -e ".[dev]"
 python -m experiments all        # the results every figure and number reads
 python -m analysis.plots         # every figure -> figures/
-python -m analysis.report        # every number, from results/
+python -m analysis.report --write  # every number -> README.md, RESULTS.md
 python notebooks/build.py        # build + execute the notebooks
 pytest -q
 ```
@@ -737,6 +738,8 @@ so every output in them is one the code produced.
 
 | notebook | what it shows |
 |---|---|
+| `00_summary` | **start here**: the whole project end to end for a non-specialist -- motivation, objective and optimisation, a live worked example, the main results as plots, real days on a calendar, two failures, every task in one figure |
+| `09_algorithm_tutorial` | the algorithm built by hand, block by block (start, fit, noise scale, score, assign, optional refine), each checked against the package, with every option |
 | `01_quickstart` | simulate, fit the hard loop and soft EM, every `lrdsr.viz` plot, losses |
 | `02_theory_and_losses` | the ceiling live, the efficiency table, V8 and V9 checked, the learned loss |
 | `03_problem_zoo` | the twelve problems, why `high_frequency` fails, two-input laws, add your own |

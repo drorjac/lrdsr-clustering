@@ -38,7 +38,13 @@ def style() -> None:
         "axes.spines.right": False, "axes.linewidth": 0.8,
         "lines.linewidth": 1.6, "lines.markersize": 5,
         "legend.frameon": False, "figure.dpi": 110, "savefig.dpi": 160,
-        "savefig.bbox": "tight", "mathtext.fontset": "cm"})
+        "savefig.bbox": "tight", "mathtext.fontset": "cm",
+        # White whatever the viewer's theme: an IDE or Jupyter dark mode
+        # otherwise shows transparent figures on a dark background.
+        "figure.facecolor": "white", "axes.facecolor": "white",
+        "savefig.facecolor": "white", "savefig.transparent": False,
+        "text.color": "black", "axes.labelcolor": "black",
+        "axes.edgecolor": "black", "xtick.color": "black", "ytick.color": "black"})
 
 
 def _csv(section: str, name: str) -> pd.DataFrame:
@@ -743,7 +749,8 @@ ALL = {
 BLOCK_FIGURES = ("analysis.figs_problems", "analysis.figs_losses",
                  "analysis.figs_online", "analysis.figs_realdata",
                  "analysis.figs_kernel", "analysis.figs_classify",
-                 "analysis.figs_partial", "analysis.figs_wind")
+                 "analysis.figs_partial", "analysis.figs_wind",
+                 "analysis.figs_robustness")
 
 
 def all_figures() -> dict:

@@ -1,0 +1,5 @@
+prediction,claim,value,held
+B1,"summaries, raw profile, SR per window: error >= 0.30, every rho",0.35777777777777775,True
+B2,"periodogram within 0.05 at rho = 1, worse by > 0.05 at rho = 0.1",0.0,True
+B3,SR per window (fitted frequency) worse by > 0.05 at rho <= 0.25,0.2111111111111111,True
+B4,"frequency_shift: periodograms worse by > 0.1, every rho",0.0,False

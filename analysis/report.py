@@ -563,9 +563,11 @@ def main(argv=None) -> int:
         print(f"  {k:<{width}}  {v:.4g}" if isinstance(v, float)
               else f"  {k:<{width}}  {v}")
     if "--write" in argv:
+        from analysis import results
         from analysis.readme import write
         write(n)
-        print("\nwrote README.md")
+        results.write(n)
+        print("\nwrote README.md, RESULTS.md and docs/figures/")
     return 0
 
 

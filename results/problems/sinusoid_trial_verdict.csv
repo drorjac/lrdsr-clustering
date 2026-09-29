@@ -1,0 +1,5 @@
+prediction,claim,value,held
+S1,high_frequency gap < 0.02,0.012592592592592575,True
+S2,frequency_shift gap grows by <= 0.01,1.214306433183765e-17,True
+S3,"other ten: mean change <= 0.005, none worse by > 0.02",-0.00022222222222222234,True
+S4,"rho = 1: both frequencies within 0.05, every seed",1.0,True
