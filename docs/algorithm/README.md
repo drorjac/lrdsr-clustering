@@ -15,6 +15,19 @@ Diagrams of the pipeline and the options at each block. Regenerate with
 
 ## Start here
 
+Read these three in order:
+
+1. **[00_the_idea.png](00_the_idea.png)**: the algorithm in pictures. Windows go in; the method alternates two questions ("what is each law?" and "which law made each window?"); labels and formulas come out.
+2. **[00_vocabulary.png](00_vocabulary.png)**: what a law can be built from.
+   - fixed terms (the default library, each one drawn);
+   - terms with a fitted inner number (`sin(a·x)` is one implemented example);
+   - open-ended PySR;
+   - the knowledge ladder: from "know nothing" to the **oracle**, which knows every law exactly and is the yardstick, not a method.
+3. **00_algorithm_at_a_glance.png**, the detailed view, described below.
+
+Regenerate the first two with `python docs/algorithm/make_overview.py`.
+
+
 **[00_algorithm_at_a_glance.png](00_algorithm_at_a_glance.png)** is the whole algorithm in one figure. There is one column per block, and each column shows four things, top to bottom:
 1. **the block**;
 2. **its piece of the objective**;

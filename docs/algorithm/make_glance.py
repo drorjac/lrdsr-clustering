@@ -52,7 +52,7 @@ S2 = (S - S.mean(0)) @ P.T
 BLOCKS = [
     ("0", "START", "mechanism space\n+ K-means", BLUE),
     ("1", "FIT", "one law per group", BLUE),
-    ("2", "NOISE SCALE", "one shared spread", BLUE),
+    ("2", "NOISE SCALE", "how big is the noise?", BLUE),
     ("3", "SCORE", "every window × every law", BLUE),
     ("4", "ASSIGN", "window → cheapest law", BLUE),
     ("5", "REFINE", "optional: deeper search", GREY),
@@ -60,7 +60,7 @@ BLOCKS = [
 PIECES = [
     r"$z^{(0)} = \mathrm{KMeans}(s_w)$",
     r"$\min_{f_k}\; \mathrm{BIC}(f_k \mid z)$",
-    r"$\hat{s} = 1.48\,\mathrm{MAD}(y - f_z)$",
+    r"$\hat{s} = 1.48 \times \mathrm{median}\,|\,y - f_{z}(x)\,|$",
     r"$J_{wk} = \overline{\rho}\left(\frac{y_w - f_k}{\hat{s}}\right) + \beta\, C(f_k)$",
     r"$z_w = \arg\min_k\, J_{wk}$",
     r"$f_k \leftarrow g_k\ \ \mathrm{if}\ J(g_k) < J(f_k)$",
@@ -69,7 +69,7 @@ CHIPS = [  # (label, kind): kind = default / option / trial / off
     [("mechanism", "default"), ("kmeans", "option"), ("gmm", "option"), ("bgmm", "option"),
      ("fcm", "option"), ("given labels", "option"), ("basis: library", "default"),
      ("Fourier / kernel", "option")],
-    [("library + BIC", "default"), ("+ sin(ax)", "trial"), ("known law", "option"),
+    [("fixed terms", "default"), ("+ fitted terms", "trial"), ("known law", "option"),
      ("known form", "option"), ("superposition", "option"), ("≤ 5 terms", "default")],
     [("global", "default"), ("per window", "option"), ("learned noise", "option")],
     [("Huber", "default"), ("squared", "option"), ("Cauchy", "option"), ("Tukey", "option"),
@@ -89,8 +89,9 @@ fig.text(0.075, 0.965, "LR-DSR at a glance", fontsize=26, weight="bold", color=B
 fig.text(0.075, 0.925, r"objective:   $\min_{z,\,f}\ \sum_w \ \overline{\rho}\left(\frac{y_w - f_{z_w}(x_w)}"
          r"{\hat{s}}\right) + \beta\, C(f_{z_w})$        blocks 1-4 repeat until < 1% of windows move",
          fontsize=16, color=INK)
-fig.text(0.075, 0.885, "each column:  the block  ·  its piece of the objective  ·  what it does to the data  ·  "
-         "default and options", fontsize=12, color="#555555")
+fig.text(0.075, 0.885, "the DETAILED view: each column, top to bottom = block · its piece of the objective · "
+         "what it does to the data · default and options",
+         fontsize=12, color="#555555")
 ROW_LABELS = ["block", "objective", "data", "default\n& options"]
 
 for c, (num, name, role, col) in enumerate(BLOCKS):
@@ -138,7 +139,8 @@ a.hist(resid, bins=50, color="#9a9a9a")
 for sgn in (-1, 1):
     a.axvline(sgn * s_hat, color=BLUE, lw=2.5)
 a.text(s_hat * 1.08, a.get_ylim()[1] * 0.85, "ŝ", color=BLUE, fontsize=15, weight="bold")
-a.set(title="residuals → one noise scale", yticks=[], xlabel="y − f(x)")
+a.set(title="misfit of every window under its current law\nŝ = its typical size (1.48 × median, = 1 sd)",
+      yticks=[], xlabel="y − f(x)")
 # 3: cost matrix
 a = fig.add_subplot(gs[2, 3])
 order = np.argsort(res.labels, kind="stable")
@@ -188,13 +190,13 @@ for c, chips in enumerate(CHIPS):
                weight="bold" if kind == "default" else "normal", color=INK)
 
 # legend for the chips
-lx = 0.60
+lx = 0.755
 for i, (lab, kind) in enumerate([("default", "default"), ("option", "option"),
-                                 ("trial (fitted frequency)", "trial")]):
+                                 ("trial", "trial")]):
     fc, ec, ls = CHIP_STYLE[kind]
-    fig.patches.append(FancyBboxPatch((lx + i * 0.11, 0.887), 0.018, 0.018, transform=fig.transFigure,
+    fig.patches.append(FancyBboxPatch((lx + i * 0.08, 0.887), 0.018, 0.018, transform=fig.transFigure,
                                       boxstyle="round,pad=0.002", fc=fc, ec=ec, lw=1.4))
-    fig.text(lx + i * 0.11 + 0.023, 0.896, lab, fontsize=11, va="center")
+    fig.text(lx + i * 0.08 + 0.023, 0.896, lab, fontsize=11, va="center")
 
 # row labels, aligned to the rows actually drawn
 for r, lab in enumerate(ROW_LABELS):

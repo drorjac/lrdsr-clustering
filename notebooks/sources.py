@@ -1269,6 +1269,17 @@ equation per group**.
 ---
 # 2 · The method (LR-DSR: *latent-regime symbolic regression*)
 
+The idea in one picture, and the vocabulary laws are built from
+(`docs/algorithm/`; notebook `09_algorithm_tutorial` builds every block by hand):
+"""),
+    ("code", r'''
+from IPython.display import Image
+Image(filename=str(ROOT / "docs" / "algorithm" / "00_the_idea.png"), width=1050)
+'''),
+    ("code", r'''
+Image(filename=str(ROOT / "docs" / "algorithm" / "00_vocabulary.png"), width=1050)
+'''),
+    ("md", r"""
 ## 2.1 The model
 
 We observe $W$ windows. Window $w$ has $n$ input/output pairs
@@ -2221,12 +2232,77 @@ This notebook builds LR-DSR **by hand**, one block at a time, in a few lines
 of numpy each, and then shows the one-line package call and the options for
 that block. At the end the hand-built loop is checked against the package.
 
-The map we follow (`docs/algorithm/00_algorithm_at_a_glance.png`):
+**The idea in one picture** (`docs/algorithm/00_the_idea.png`): windows go
+in; two questions alternate ("what is each law?" and "which law made each
+window?"); labels and formulas come out.
 """),
     ("code", SETUP),
     ("code", r'''
 from IPython.display import Image
-Image(filename=str(ROOT / "docs" / "algorithm" / "00_algorithm_at_a_glance.png"), width=1100)
+DOCS = ROOT / "docs" / "algorithm"
+Image(filename=str(DOCS / "00_the_idea.png"), width=1100)
+'''),
+    ("md", r"""
+---
+## The vocabulary: what a law can be built from
+
+A law is never searched among *all* functions. It is a short sum of
+**terms**, and the list of allowed terms decides which laws can be written
+down exactly. Three levels of vocabulary:
+"""),
+    ("code", r'''
+Image(filename=str(DOCS / "00_vocabulary.png"), width=1100)
+'''),
+    ("md", r"""
+**A · Fixed terms (the default).** This is the actual list, read from the
+code. The search picks up to 5 terms and fits one number in front of each:
+"""),
+    ("code", r'''
+from lrdsr.core.soft import library_terms
+xg = np.linspace(-2.2, 2.2, 300)
+Phi, names = library_terms(xg[:, None], feature_names=["x"])
+print("the default library:", ", ".join(names))
+print("with two inputs x1, x2: the same terms for each, plus the product x1*x2")
+fig, ax = plt.subplots(1, len(names), figsize=(15, 2.0), sharex=True)
+for a, nm, col in zip(ax, names, Phi.T):
+    a.plot(xg, col, color=viz.PALETTE[0], lw=2); a.set_title(nm, fontsize=9); a.set(xticks=[], yticks=[])
+fig.tight_layout()
+'''),
+    ("md", r"""
+**B · Terms with a fitted inner number.** A term like $\sin(a\,x)$ has a
+number *inside* it, so one term stands for a whole family of shapes, and the
+search fits $a$ as well. `sin(a·x)` and `cos(a·x)` are the only ones
+implemented (the `fast_sin` trial). They are **one example** of the idea,
+chosen because oscillations were the zoo's failure; $e^{b x}$, $x^c$ or
+$1/(1+c x^2)$ would work the same way, but are not implemented.
+
+**C · Open-ended.** PySR builds formulas from operators, with no list at all.
+It runs only in the optional block 5, once per group (end of this notebook).
+
+**How much you know about the laws** is the same ladder seen from the other
+side. The more you declare, the less the data must tell you:
+
+| you know… | how you say it | what is fitted |
+|---|---|---|
+| nothing beyond the vocabulary | default (`mechanism_specs=None`) | which terms + their numbers |
+| the **form** of a law, e.g. $a\,e^{-b x}$ | `{"mode": "factory", "factory": lambda: ParametricPriorRegressor(form, p0)}` | only $a$, $b$ |
+| part of a law | `{"mode": "partial", "prior_function": h}` | the rest, from the library |
+| the law exactly | `{"mode": "known", "function": f}` | nothing |
+| **every** law exactly | the **oracle** | nothing: it is the yardstick, not a method |
+
+The **oracle** used throughout the project is just the top of this ladder:
+it knows every law exactly and labels each window by the smallest residual.
+No method can beat it, so every result is measured against it.
+
+---
+## The detailed map
+
+Every block, its piece of the objective, what it does to the data, and its
+options (`docs/algorithm/00_algorithm_at_a_glance.png`). The rest of this
+notebook builds each column by hand.
+"""),
+    ("code", r'''
+Image(filename=str(DOCS / "00_algorithm_at_a_glance.png"), width=1100)
 '''),
     ("md", r"""
 **The objective** every block serves:
@@ -2386,12 +2462,17 @@ fig.tight_layout()
 '''),
     ("md", r"""
 ---
-## Block 2 · NOISE SCALE: one shared spread
+## Block 2 · NOISE SCALE: how big is the noise?
 
-**Role in the objective:** $\hat s$, the unit residuals are measured in.
-**Role on the data:** the robust spread of *all* residuals under the current
-labels (median absolute deviation times 1.4826, i.e. in standard-deviation units).
-One shared scale, so a window a law explains badly really costs more.
+**Role in the objective:** $\hat s$, the ruler misfits are measured with:
+the objective scores $(y - f(x))/\hat s$, a misfit *in units of the noise*.
+**Role on the data:** take every window's misfit under its current law,
+$y - f_{z}(x)$, and measure its typical size robustly:
+$\hat s = 1.48 \times \mathrm{median}\,|y - f_z(x)|$. The median ignores
+outliers; the factor 1.48 turns it into a standard deviation (for Gaussian
+noise, the median absolute value is 0.674 standard deviations, and
+1/0.674 = 1.48). One shared ruler for all windows, so a window a law explains
+badly really costs more.
 """),
     ("code", r'''
 from lrdsr.core.losses import noise_scale
