@@ -9,6 +9,9 @@ from lrdsr import paths
 
 TEMPLATE = """# LR-DSR clustering
 
+[![tests](https://github.com/drorjac/lrdsr-clustering/actions/workflows/ci.yml/badge.svg)](https://github.com/drorjac/lrdsr-clustering/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Each window of data came from one of `K` unknown closed-form laws. Recover
 the law each window came from.**
 
@@ -31,7 +34,27 @@ calendar proxy and are said to be one; 24 datasets of the UCR time-series
 archive, whose labels are the archive's own; and a wind farm's SCADA,
 scored against physical proxies because it has no operator labels.
 
+## Use it on your data
+
 ```bash
+pip install git+https://github.com/drorjac/lrdsr-clustering
+```
+
+```python
+from lrdsr import GroupedDCSR
+
+# X_seq: (windows, samples, inputs)   y_seq: (windows, samples)   Z: any window features
+res = GroupedDCSR(n_clusters=3, alpha_geom=0.0).fit(X_seq, y_seq, Z, feature_names=["x"])
+res.labels                                 # which law made each window
+[m.expression() for m in res.models]       # each law, as a formula
+```
+
+`notebooks/09_algorithm_tutorial.ipynb` walks through every option.
+
+## Reproduce everything
+
+```bash
+git clone https://github.com/drorjac/lrdsr-clustering && cd lrdsr-clustering
 pip install -e ".[dev]"
 python -m experiments all        # the results every figure and number reads
 python -m analysis.plots         # every figure -> figures/
@@ -799,11 +822,36 @@ every archive's sha256 is checked on each load.
 - **UCR archive**: the UCR Time Series Classification Archive (Dau et al., 2018), via timeseriesclassification.com.
 - **Kelmarsh wind farm**: SCADA data, Plumley (2022), Zenodo, doi:10.5281/zenodo.5841834, CC BY 4.0.
 
-## License, citing, contributing
+## Contributing
 
-- **License:** MIT (see `LICENSE`). The code and results are provided as is.
-- **Citing:** use `CITATION.cff` (GitHub's "Cite this repository" button).
-- **Contributing:** issues and pull requests are welcome; see `CONTRIBUTING.md` for the house rules that keep every number checkable.
+Contributions are welcome, and especially **applications to new data**: if
+your data come in short windows that may follow a few different laws (sensor
+readings, daily or weekly profiles, machine operating curves, physiological
+cycles), try the method on them and open a pull request or an issue with what
+you found. New law engines, bases, problems for the zoo and corrections are
+welcome too. `CONTRIBUTING.md` explains how to add a dataset and the house
+rules that keep every number checkable.
+
+## How to cite
+
+```bibtex
+@software{{jacoby_lrdsr,
+  author  = {{Jacoby, Dror}},
+  title   = {{LR-DSR: latent-regime clustering by symbolic law}},
+  year    = {{2026}},
+  version = {{1.0.0}},
+  url     = {{https://github.com/drorjac/lrdsr-clustering}}
+}}
+```
+
+GitHub's "Cite this repository" button gives the same from `CITATION.cff`.
+
+## License and origins
+
+MIT (see `LICENSE`); the code and results are provided as is. The method grew
+out of earlier work on commercial microwave links (CML); some experiment
+docstrings still refer to that setting, whose code is not part of this
+repository.
 """
 
 

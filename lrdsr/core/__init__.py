@@ -12,8 +12,8 @@ them for the soft and the real-time variants):
 - ``online.py``     -- ``OnlineLRDSR`` / ``CusumSegmenter``: real-time clustering.
 
 Nothing in this package may read true labels except the optional
-``true_labels_for_eval`` logging hook, and nothing here may import from an
-application package (``lrdsr.cml``) or from ``experiments/``.
+``true_labels_for_eval`` logging hook, and nothing here may import from
+``experiments/``.
 """
 
 from .backends import (

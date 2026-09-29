@@ -450,8 +450,8 @@ class GroupedDCSR:
 
         ``mechanism_specs`` binds knowledge to a cluster *slot*, but a
         geometric initialiser numbers its clusters arbitrarily, so "slot 1 is
-        the rain law" is meaningless unless the slots are given a canonical
-        order first. Passing e.g. the mean attenuation of each window as
+        the high-load law" is meaningless unless the slots are given a canonical
+        order first. Passing e.g. the mean level of each window as
         ``slot_order_key`` sorts the slots from quietest to loudest, which is
         what makes a declared prior land on the regime it describes.
 

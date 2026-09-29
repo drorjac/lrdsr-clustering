@@ -44,10 +44,8 @@ def fit_lrdsr(Z, names, X_seq, y_seq, x_names, K, seed, alpha_geom=0.25,
     a shared (global) residual scale, initialised in mechanism space.
 
     ``mechanism_basis`` / ``mechanism_nuisance`` override the default library
-    for the initial partition. The CML experiments pass
-    ``lrdsr.cml.laws.mechanism_kwargs(f_ghz)``, whose basis is a function of
-    the rain rate alone and whose nuisance is the rain path -- so link length
-    never reaches the statistic.
+    for the initial partition, e.g. a domain basis and a per-window nuisance
+    term that should never reach the statistic.
     """
     model = GroupedDCSR(
         n_clusters=K, alpha_geom=alpha_geom, beta_complexity=0.002,

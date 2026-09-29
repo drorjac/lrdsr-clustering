@@ -33,11 +33,8 @@ CACHE_ROOT = ROOT / ".cache"
 
 #: The preprocessed archive: shared by every run and rebuildable at any time.
 #: It is *not* a result -- rebuilding it per run would cost hours for
-#: identical bytes. (Was ``results/cml_cache/`` until the artefact tiering.)
+#: identical bytes.
 CACHE = CACHE_ROOT / "windows"
-
-#: The manuscript source, and the figures rendered for print.
-PAPER = ROOT / "paper"
 
 
 def results_dir(name: str, figs: bool = True) -> Path:

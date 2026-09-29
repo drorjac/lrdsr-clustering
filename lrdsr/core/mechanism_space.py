@@ -35,14 +35,14 @@ fluctuation. Removing it globally first leaves a leak proportional to the
 shared term 64x the gap costs the whole signal.
 
 *Remove it per group, not per window.* ``groups`` names what a nuisance is
-constant over -- for a microwave link, the link. Everything constant within a
-link (its gain, its length, its path coefficient) is then absorbed, and the
+constant over -- for sensor data, the sensor. Everything constant within a
+sensor (its gain, its offset, its calibration) is then absorbed, and the
 regime gap survives untouched because it is exactly the thing that varies
-*within* the link. Profiling the same term out of each window separately
-looks equivalent and is not: the wet antenna is 99% collinear with the rain
-path over the observed rain distribution, so a per-window profile deletes the
-signal along with the nuisance. Use ``nuisance`` only for a term whose
-strength genuinely moves window to window.
+*within* the sensor. Profiling the same term out of each window separately
+looks equivalent and is not: when the nuisance is nearly collinear with the
+regime gap over the observed inputs, a per-window profile deletes the signal
+along with the nuisance. Use ``nuisance`` only for a term whose strength
+genuinely moves window to window.
 
 *Project, do not solve.* Reading the window's coefficients off with
 ``(C_w^T C_w)^-1`` would remove that dependence exactly, but the library is
@@ -73,9 +73,8 @@ each is verified in ``experiments/``:
 2. **Any component shared by the regimes cancels**, exactly as it does for
    the oracle: a common ``u`` in the span of ``B`` moves every ``beta_k`` by
    the same vector, and the centring removes it.
-3. **A nuisance whose coefficient varies per window is removed too.** For a
-   microwave link the path term ``a R^b L`` is that nuisance, so link length
-   leaves the statistic altogether.
+3. **A nuisance whose coefficient varies per window is removed too.** A
+   day's overall level, for example, leaves the statistic altogether.
 
 The invariance in (2) holds for shared components **inside** the library
 span. A shared component outside it is absorbed by a window-dependent
@@ -380,9 +379,9 @@ def separation_unlabelled(
     that something is undetectable.
 
     The most extreme ``trim`` of windows are left out of the trace: a
-    variance is not robust, and on a real band a handful of bad windows
-    otherwise set it (measured on OpenRainER 24: ``rho`` of 62 untrimmed
-    against 13 trimmed, a factor of five from 1% of the windows).
+    variance is not robust, and on real sensor data a handful of bad windows
+    otherwise set it (measured in an earlier application: ``rho`` of 62
+    untrimmed against 13 trimmed, a factor of five from 1% of the windows).
 
     ``pi`` is unknown without labels. The default ``0.5`` maximises
     ``pi(1-pi)`` and so gives the smallest ``rho`` consistent with the
@@ -452,10 +451,10 @@ def rho_from_partition(
 def inliers(S: np.ndarray, trim: float = TRIM) -> np.ndarray:
     """Boolean mask dropping the ``trim`` fraction of largest radii.
 
-    Real links supply outliers in quantity -- a gauge that missed a cell, a
-    hardware event, a rain rate of 128 mm/h against a median of 1 -- and on
-    the two OpenRainER bands the largest ``||s_w||`` is several hundred times
-    the noise scale. Left in, plain K-means spends its two clusters separating
+    Real data supply outliers in quantity -- a sensor fault, a hardware
+    event, one input far outside the usual range -- and the largest
+    ``||s_w||`` can be several hundred times the noise scale. Left in, plain
+    K-means spends its two clusters separating
     0.2% of the windows from the other 99.8%: outlier detection, not regime
     discovery. Trimming the extreme radii before the centres are computed is
     the standard remedy, and the same idea as the Huber loss the assignment
